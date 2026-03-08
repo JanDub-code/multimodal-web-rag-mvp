@@ -1,0 +1,20 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+jinja2==3.1.6
+python-multipart==0.0.20
+sqlalchemy==2.0.43
+psycopg[binary]==3.2.9
+python-jose==3.5.0
+passlib==1.7.4
+pydantic==2.11.7
+pydantic-settings==2.10.1
+requests==2.32.5
+beautifulsoup4==4.13.4
+playwright==1.55.0
+qdrant-client==1.15.1
+sentence-transformers==3.0.1
+numpy==1.26.4; python_version < "3.13"
+numpy>=2.1.0; python_version >= "3.13"
+pytesseract==0.3.13
+Pillow==12.1.1
+pytest==9.0.2

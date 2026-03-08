@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Local MVP - Ingest</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; color: #333; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    input, button, select { padding: 0.5rem; margin: 0.25rem 0; width: 100%; box-sizing: border-box; }
+    button { cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    pre { background: #f6f6f6; padding: 0.75rem; border-radius: 6px; overflow: auto; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .error { color: #c00; background: #fee; padding: 0.5rem; border-radius: 4px; margin: 0.5rem 0; }
+    .success { color: #060; }
+    .loading { display: none; text-align: center; padding: 0.5rem; color: #666; }
+    .loading.active { display: block; }
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ddd; border-top-color: #666; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 0.5rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <h1>Local MVP: Source + Ingest</h1>
+  <p><a href="/query">Go to Query page</a></p>
+
+  <div class="card">
+    <h3>1) Login</h3>
+    <select id="accountSelect" onchange="applySelectedAccount()">
+      <option value="curator" selected>curator (ingest)</option>
+      <option value="admin">admin (full access)</option>
+      <option value="analyst">analyst (query/read)</option>
+      <option value="user">user (query/read)</option>
+      <option value="custom">custom (manual)</option>
+    </select>
+    <input id="username" placeholder="username" value="curator" />
+    <input id="password" type="password" placeholder="password" value="curator123" />
+    <button onclick="login()">Login</button>
+    <div id="loginStatus"></div>
+    <div id="roleStatus"></div>
+  </div>
+
+  <div class="card">
+    <h3>2) Add source</h3>
+    <input id="sourceName" placeholder="Source name" />
+    <input id="sourceUrl" placeholder="Base URL" />
+    <button id="createSourceBtn" onclick="createSource()">Create source</button>
+    <div id="sourceStatus"></div>
+  </div>
+
+  <div class="card">
+    <h3>3) Run ingest</h3>
+    <div class="row">
+      <div>
+        <button onclick="loadSources()">Refresh sources</button>
+        <select id="sourceSelect" onchange="syncSelectedSourceUrl(true)"></select>
+      </div>
+      <div>
+        <input id="ingestUrl" placeholder="URL to ingest" oninput="renderIngestScopeHint()" />
+        <button id="runIngestBtn" onclick="runIngest()">Run ingest</button>
+      </div>
+    </div>
+    <div id="ingestScopeHint"></div>
+    <div id="ingestLoading" class="loading"><span class="spinner"></span>Ingesting... this may take a while.</div>
+    <pre id="ingestResult"></pre>
+  </div>
+
+  <script>
+    const TEST_ACCOUNTS = {
+      admin: { username: 'admin', password: 'admin123' },
+      curator: { username: 'curator', password: 'curator123' },
+      analyst: { username: 'analyst', password: 'analyst123' },
+      user: { username: 'user', password: 'user123' }
+    };
+
+    function token() { return localStorage.getItem('token') || ''; }
+    function getCurrentRole() { return localStorage.getItem('role') || ''; }
+    function canIngest(role) { return role === 'Admin' || role === 'Curator'; }
+
+    function parseUrlSafe(value) {
+      try { return new URL(value); } catch (e) { return null; }
+    }
+
+    function currentSelectedBaseUrl() {
+      const select = document.getElementById('sourceSelect');
+      const option = select.selectedOptions[0];
+      return option ? (option.dataset.baseUrl || '') : '';
+    }
+
+    function isUrlWithinSourceScope(baseUrl, targetUrl) {
+      const base = parseUrlSafe(baseUrl);
+      const target = parseUrlSafe(targetUrl);
+      if (!base || !target) return false;
+      if (base.protocol !== target.protocol) return false;
+      if (base.hostname !== target.hostname) return false;
+      if (base.port !== target.port) return false;
+      const basePath = base.pathname.replace(/\/$/, '') || '/';
+      const targetPath = target.pathname.replace(/\/$/, '') || '/';
+      return basePath === '/' || targetPath === basePath || targetPath.startsWith(basePath + '/');
+    }
+
+    function renderIngestScopeHint() {
+      const hint = document.getElementById('ingestScopeHint');
+      const baseUrl = currentSelectedBaseUrl();
+      const targetUrl = document.getElementById('ingestUrl').value.trim();
+      if (!baseUrl || !targetUrl) {
+        hint.innerHTML = '';
+        return true;
+      }
+      if (isUrlWithinSourceScope(baseUrl, targetUrl)) {
+        hint.innerHTML = '<span class="success">URL matches selected source scope.</span>';
+        return true;
+      }
+      hint.innerHTML = '<span class="error">URL is outside selected source scope: ' + baseUrl + '</span>';
+      return false;
+    }
+
+    function syncSelectedSourceUrl(force) {
+      const input = document.getElementById('ingestUrl');
+      const baseUrl = currentSelectedBaseUrl();
+      if (!baseUrl) {
+        renderIngestScopeHint();
+        return;
+      }
+      if (force || !input.value.trim()) {
+        input.value = baseUrl;
+      }
+      renderIngestScopeHint();
+    }
+
+    function applyRoleUI() {
+      const role = getCurrentRole();
+      const allowed = canIngest(role);
+      document.getElementById('createSourceBtn').disabled = !allowed;
+      document.getElementById('runIngestBtn').disabled = !allowed;
+      const el = document.getElementById('roleStatus');
+      if (!role) { el.innerText = 'Not logged in yet.'; return; }
+      el.innerText = allowed ? 'Role ' + role + ': ingest enabled.' : 'Role ' + role + ': ingest disabled (read/query only).';
+    }
+
+    function applySelectedAccount() {
+      const key = document.getElementById('accountSelect').value;
+      const creds = TEST_ACCOUNTS[key];
+      if (creds) {
+        document.getElementById('username').value = creds.username;
+        document.getElementById('password').value = creds.password;
+      }
+    }
+
+    async function login() {
+      const body = new URLSearchParams();
+      body.append('username', document.getElementById('username').value);
+      body.append('password', document.getElementById('password').value);
+      try {
+        const r = await fetch('/api/auth/login', { method: 'POST', body });
+        const data = await r.json();
+        if (data.access_token) {
+          localStorage.setItem('token', data.access_token);
+          localStorage.setItem('role', data.role || '');
+          document.getElementById('loginStatus').innerHTML = '<span class="success">Logged in as role: ' + data.role + '</span>';
+          applyRoleUI();
+          await loadSources();
+        } else {
+          document.getElementById('loginStatus').innerHTML = '<span class="error">' + (data.detail || JSON.stringify(data)) + '</span>';
+        }
+      } catch (e) {
+        document.getElementById('loginStatus').innerHTML = '<span class="error">Login failed: ' + e.message + '</span>';
+      }
+    }
+
+    async function createSource() {
+      try {
+        const r = await fetch('/api/ingest/sources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+          body: JSON.stringify({
+            name: document.getElementById('sourceName').value,
+            base_url: document.getElementById('sourceUrl').value
+          })
+        });
+        const data = await r.json();
+        if (r.ok) {
+          document.getElementById('sourceStatus').innerHTML = '<span class="success">Source created: ID ' + data.source_id + '</span>';
+          await loadSources();
+        } else {
+          document.getElementById('sourceStatus').innerHTML = '<span class="error">' + (data.detail || JSON.stringify(data)) + '</span>';
+        }
+      } catch (e) {
+        document.getElementById('sourceStatus').innerHTML = '<span class="error">' + e.message + '</span>';
+      }
+    }
+
+    async function loadSources() {
+      if (!token()) return;
+      try {
+        const r = await fetch('/api/ingest/sources', { headers: { 'Authorization': 'Bearer ' + token() } });
+        if (!r.ok) return;
+        const data = await r.json();
+        const select = document.getElementById('sourceSelect');
+        select.innerHTML = '';
+        (data || []).forEach(function(s) {
+          const option = document.createElement('option');
+          option.value = s.id;
+          option.dataset.baseUrl = s.base_url;
+          option.text = s.id + ' - ' + s.name + ' (' + s.base_url + ')';
+          select.appendChild(option);
+        });
+        syncSelectedSourceUrl(false);
+      } catch (e) { /* silently skip if not logged in yet */ }
+    }
+
+    async function runIngest() {
+      const sourceId = Number(document.getElementById('sourceSelect').value);
+      const url = document.getElementById('ingestUrl').value;
+      const btn = document.getElementById('runIngestBtn');
+      const loading = document.getElementById('ingestLoading');
+      const result = document.getElementById('ingestResult');
+
+      btn.disabled = true;
+      loading.classList.add('active');
+      result.innerText = '';
+
+      if (!renderIngestScopeHint()) {
+        btn.disabled = false;
+        loading.classList.remove('active');
+        result.innerHTML = '<span class="error">Ingest URL must stay within the selected source base URL.</span>';
+        return;
+      }
+
+      try {
+        const r = await fetch('/api/ingest/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+          body: JSON.stringify({ source_id: sourceId, url: url })
+        });
+        const data = await r.json();
+        if (r.ok) {
+          result.innerText = JSON.stringify(data, null, 2);
+        } else {
+          result.innerHTML = '<span class="error">' + (data.detail || JSON.stringify(data)) + '</span>';
+        }
+      } catch (e) {
+        result.innerHTML = '<span class="error">Ingest failed: ' + e.message + '</span>';
+      } finally {
+        btn.disabled = false;
+        loading.classList.remove('active');
+        applyRoleUI();
+      }
+    }
+
+    applySelectedAccount();
+    applyRoleUI();
+    // Don't call loadSources() on page load — wait until after login
+  </script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+# Secrets and local env
+.env
+.env.local
+.env.*.local
+
+# Python virtual environments
+.venv/
+venv/
+
+# Python cache and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Tooling caches
+.playwright-browsers/
+.mypy_cache/
+.ruff_cache/
+
+# OS / editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Runtime evidence, keep placeholders only
+data/evidence/*
+!data/evidence/.gitkeep
+!data/evidence/dom/
+!data/evidence/screenshots/
+data/evidence/dom/*
+!data/evidence/dom/.gitkeep
+data/evidence/screenshots/*
+!data/evidence/screenshots/.gitkeep

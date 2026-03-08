@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Local MVP - Query</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 2rem auto; color: #333; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    input, button, select, textarea { padding: 0.5rem; margin: 0.25rem 0; width: 100%; box-sizing: border-box; }
+    textarea { min-height: 120px; }
+    button { cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .error { color: #c00; background: #fee; padding: 0.5rem; border-radius: 4px; margin: 0.5rem 0; }
+    .success { color: #060; }
+    .answer-box { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; padding: 1rem; margin-top: 0.5rem; white-space: pre-wrap; line-height: 1.6; }
+    .citation { background: #fff; border: 1px solid #ddd; border-radius: 4px; padding: 0.5rem 0.75rem; margin: 0.3rem 0; font-size: 0.9rem; }
+    .citation a { color: #1a73e8; text-decoration: none; }
+    .citation a:hover { text-decoration: underline; }
+    .score { display: inline-block; background: #e8f0fe; color: #1a56db; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.8rem; font-weight: bold; }
+    .loading { display: none; text-align: center; padding: 1rem; color: #666; }
+    .loading.active { display: block; }
+    .spinner { display: inline-block; width: 20px; height: 20px; border: 3px solid #ddd; border-top-color: #666; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 0.5rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .no-results { color: #666; font-style: italic; padding: 1rem; text-align: center; }
+    pre.raw { background: #f6f6f6; padding: 0.75rem; border-radius: 6px; overflow: auto; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <h1>Local MVP: Query (RAG / no-RAG)</h1>
+  <p><a href="/">Go to Ingest page</a></p>
+
+  <div class="card">
+    <h3>1) Login</h3>
+    <select id="accountSelect" onchange="applySelectedAccount()">
+      <option value="user" selected>user (query/read)</option>
+      <option value="analyst">analyst (query/read)</option>
+      <option value="curator">curator (ingest + query)</option>
+      <option value="admin">admin (full access)</option>
+      <option value="custom">custom (manual)</option>
+    </select>
+    <input id="username" placeholder="username" value="user" />
+    <input id="password" type="password" placeholder="password" value="user123" />
+    <button onclick="login()">Login</button>
+    <div id="loginStatus"></div>
+  </div>
+
+  <div class="card">
+    <h3>2) Ask</h3>
+    <textarea id="question" placeholder="Enter your question" maxlength="1000"></textarea>
+    <select id="mode">
+      <option value="rag">rag</option>
+      <option value="no-rag">no-rag</option>
+    </select>
+    <button id="queryBtn" onclick="ask()">Run query</button>
+    <div id="loading" class="loading"><span class="spinner"></span>Processing query...</div>
+    <div id="queryResult"></div>
+  </div>
+
+  <script>
+    const TEST_ACCOUNTS = {
+      admin: { username: 'admin', password: 'admin123' },
+      curator: { username: 'curator', password: 'curator123' },
+      analyst: { username: 'analyst', password: 'analyst123' },
+      user: { username: 'user', password: 'user123' }
+    };
+
+    function token() { return localStorage.getItem('token') || ''; }
+
+    function applySelectedAccount() {
+      const key = document.getElementById('accountSelect').value;
+      const creds = TEST_ACCOUNTS[key];
+      if (creds) {
+        document.getElementById('username').value = creds.username;
+        document.getElementById('password').value = creds.password;
+      }
+    }
+
+    async function login() {
+      const body = new URLSearchParams();
+      body.append('username', document.getElementById('username').value);
+      body.append('password', document.getElementById('password').value);
+      try {
+        const r = await fetch('/api/auth/login', { method: 'POST', body });
+        const data = await r.json();
+        if (data.access_token) {
+          localStorage.setItem('token', data.access_token);
+          localStorage.setItem('role', data.role || '');
+          document.getElementById('loginStatus').innerHTML = '<span class="success">Logged in as role: ' + data.role + '</span>';
+        } else {
+          document.getElementById('loginStatus').innerHTML = '<span class="error">' + (data.detail || JSON.stringify(data)) + '</span>';
+        }
+      } catch (e) {
+        document.getElementById('loginStatus').innerHTML = '<span class="error">Login failed: ' + e.message + '</span>';
+      }
+    }
+
+    function renderResult(data) {
+      const container = document.getElementById('queryResult');
+      container.innerHTML = '';
+
+      if (data.detail) {
+        container.innerHTML = '<div class="error">' + data.detail + '</div>';
+        return;
+      }
+
+      // Mode badge
+      const modeTag = document.createElement('div');
+      modeTag.style.cssText = 'font-size:0.85rem; color:#666; margin-bottom:0.5rem;';
+      modeTag.textContent = 'Mode: ' + (data.mode || 'unknown');
+      container.appendChild(modeTag);
+
+      // Answer
+      const answerDiv = document.createElement('div');
+      answerDiv.className = 'answer-box';
+      answerDiv.textContent = data.answer || 'No answer returned.';
+      container.appendChild(answerDiv);
+
+      // Citations
+      if (data.citations && data.citations.length > 0) {
+        const citHead = document.createElement('h4');
+        citHead.textContent = 'Citations (' + data.citations.length + ')';
+        citHead.style.marginTop = '1rem';
+        container.appendChild(citHead);
+
+        data.citations.forEach(function(cit) {
+          const div = document.createElement('div');
+          div.className = 'citation';
+          const scoreHtml = cit.score != null ? ' <span class="score">score: ' + cit.score.toFixed(3) + '</span>' : '';
+          const url = cit.url || '#';
+          div.innerHTML = '<strong>[' + cit.index + ']</strong> <a href="' + url + '" target="_blank" rel="noopener">' + url + '</a>' + scoreHtml;
+          if (cit.evidence && cit.evidence.evidence_ids) {
+            div.innerHTML += '<br><small>Evidence IDs: ' + cit.evidence.evidence_ids.join(', ') + '</small>';
+          }
+          container.appendChild(div);
+        });
+      } else if (data.mode === 'rag') {
+        const noRes = document.createElement('div');
+        noRes.className = 'no-results';
+        noRes.textContent = 'No citations — no relevant documents matched the query.';
+        container.appendChild(noRes);
+      }
+    }
+
+    async function ask() {
+      const query = document.getElementById('question').value.trim();
+      if (!query) return;
+      const mode = document.getElementById('mode').value;
+      const btn = document.getElementById('queryBtn');
+      const loading = document.getElementById('loading');
+      const result = document.getElementById('queryResult');
+
+      btn.disabled = true;
+      loading.classList.add('active');
+      result.innerHTML = '';
+
+      try {
+        const r = await fetch('/api/query/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() },
+          body: JSON.stringify({ query, mode, top_k: 5 })
+        });
+        const data = await r.json();
+        renderResult(data);
+      } catch (e) {
+        result.innerHTML = '<div class="error">Request failed: ' + e.message + '</div>';
+      } finally {
+        btn.disabled = false;
+        loading.classList.remove('active');
+      }
+    }
+
+    applySelectedAccount();
+  </script>
+</body>
+</html>
