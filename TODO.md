@@ -40,6 +40,34 @@ Definition of Done:
 - [x] Doplnit explicitní audit event pro model call (`model.call`) včetně request ID a error stavu.
 - [x] Rozšířit incident taxonomy i mimo CAPTCHA (parse/render/fetch chyby) bez změny topologie služby.
 
+## P1.7 - UX, embedding a compliance potvrzení
+
+- [ ] Navrhnout a implementovat hezký/profesionální frontend (sjednocený vizuální styl, lepší typografie, responzivita desktop/mobile, konzistentní spacing a hierarchy).
+- [ ] Udělat UI cleanup pro `/` a `/query` (jasné stavy loading/error/success, čitelnější formuláře, konzistentní CTA, srozumitelné validační hlášky).
+- [ ] Vybrat samostatný malý embedding model vhodný pro CZ/EN (2-3 kandidáti, rozhodnutí s odůvodněním, tradeoff kvalita vs výkon).
+- [ ] Otestovat embedding modely na reálných dotazech (kvalita retrieval + latence + RAM/CPU footprint) a zapsat výsledky do krátké benchmark tabulky v README.
+- [ ] Přidat compliance guard do UI před spuštěním citlivé akce (ingest/query): explicitní potvrzení + text souhlasu.
+- [ ] Přidat povinné potvrzení operátora „kdo a kdy“ (uživatel, timestamp, akce, request_id, volitelně reason) s uložením do audit logu.
+- [ ] Zablokovat spuštění akce bez compliance potvrzení jak v UI, tak v API validaci (nejen frontend kontrola).
+
+Definition of Done:
+- frontend je použitelný na desktopu i mobilu bez layout glitchů,
+- benchmark embeddingů je uložený a je zřejmé, proč je zvolen default model,
+- bez compliance potvrzení nelze citlivou akci spustit a audit obsahuje jednoznačný záznam kdo/kdy/akce.
+
+## P1.8 - Retrieval relevance a reranking
+
+- [ ] Zdokumentovat současný stav: heuristický reranking (lexical boost + deduplikace podle `doc_id`/`url`) a jeho limity.
+- [ ] Přidat volitelný model-based reranker oddělený od embedding modelu (konfigurovatelně přes env: `RERANK_ENABLED`, `RERANK_MODEL`, `RERANK_TOP_N`).
+- [ ] Zachovat fallback na heuristický reranking při chybě nebo nedostupnosti reranker modelu (bez pádu query endpointu).
+- [ ] Spustit A/B porovnání „heuristika vs model reranker“ na stejné sadě dotazů (MRR/Recall@k, latence p50/p95, CPU/RAM).
+- [ ] Vybrat výchozí strategii rerankingu podle výsledků a zapsat rozhodnutí do README + runbooku.
+
+Definition of Done:
+- je jasné, kdy běží heuristika a kdy model reranker,
+- query endpoint zůstává stabilní i při výpadku rerankeru,
+- rozhodnutí o default rerank strategii je podložené metrikami.
+
 ## P2 - růstové věci
 
 - [ ] Consent enforcement model (povinné blokace ingestu bez souhlasu).
@@ -58,7 +86,9 @@ Definition of Done:
 1. Provozní ověření P0 na čistém Docker prostředí.
 2. CI minimum + test report (P1).
 3. Údržba refresh tokenů + API changelog (P1).
-4. Teprve potom rozhodnutí o růstových tématech (P2).
+4. UX + embedding + compliance guard (P1.7).
+5. Reranking rozhodnutí podložené benchmarkem (P1.8).
+6. Teprve potom rozhodnutí o růstových tématech (P2).
 
 ---
 
