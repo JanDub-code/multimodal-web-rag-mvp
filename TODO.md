@@ -44,16 +44,25 @@ Definition of Done:
 
 - [ ] Navrhnout a implementovat hezký/profesionální frontend (sjednocený vizuální styl, lepší typografie, responzivita desktop/mobile, konzistentní spacing a hierarchy).
 - [ ] Udělat UI cleanup pro `/` a `/query` (jasné stavy loading/error/success, čitelnější formuláře, konzistentní CTA, srozumitelné validační hlášky).
+- [ ] Rozdělit frontend na hlavní stránky: `Dashboard`, `Ingest`, `Query`, `Compliance`.
+- [ ] Přidat samostatnou stránku `Compliance` pro explicitní odkliknutí souhlasu, přehled posledních potvrzení a auditní stopu.
 - [ ] Vybrat samostatný malý embedding model vhodný pro CZ/EN (2-3 kandidáti, rozhodnutí s odůvodněním, tradeoff kvalita vs výkon).
 - [ ] Otestovat embedding modely na reálných dotazech (kvalita retrieval + latence + RAM/CPU footprint) a zapsat výsledky do krátké benchmark tabulky v README.
 - [ ] Přidat compliance guard do UI před spuštěním citlivé akce (ingest/query): explicitní potvrzení + text souhlasu.
 - [ ] Přidat povinné potvrzení operátora „kdo a kdy“ (uživatel, timestamp, akce, request_id, volitelně reason) s uložením do audit logu.
 - [ ] Zablokovat spuštění akce bez compliance potvrzení jak v UI, tak v API validaci (nejen frontend kontrola).
+- [ ] Zavést `operation_id` auto-generované ve frontendu pro všechny akce (single i batch), bez ručního zadávání uživatelem.
+- [ ] Pro batch ingest zavést `batch_id` + `row_id` pro trasování, idempotenci a chybové reporty.
+- [ ] Zavést backend fallback: když klient nepošle `operation_id`, backend ho vytvoří a vrátí v response.
+- [ ] Přidat přepínač režimu: `COMPLIANCE_ENFORCEMENT=false` (dev mode) a `true` (test/prod enforcement) s jasným chováním v UI i API.
+- [ ] Doplnit testy pro oba režimy (`dev mode` vs enforcement mode), včetně negativních scénářů bez potvrzení.
 
 Definition of Done:
 - frontend je použitelný na desktopu i mobilu bez layout glitchů,
 - benchmark embeddingů je uložený a je zřejmé, proč je zvolen default model,
-- bez compliance potvrzení nelze citlivou akci spustit a audit obsahuje jednoznačný záznam kdo/kdy/akce.
+- bez compliance potvrzení nelze citlivou akci spustit (pokud je enforcement zapnutý),
+- v dev mode lze akce spustit i bez potvrzení, ale audit obsahuje flag, že compliance byla bypassnuta,
+- audit obsahuje jednoznačný záznam `kdo/kdy/co/request_id/operation_id`.
 
 ## P1.8 - Retrieval relevance a reranking
 
