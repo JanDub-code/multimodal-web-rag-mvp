@@ -8,7 +8,8 @@ from pydantic import ValidationError
 from app.api import routes_ingest, routes_query
 from app.db.models import AuditLog, Chunk, Document, Incident, IngestJob, RefreshToken, Source
 from app import main as app_main
-from app.services import answering, extract, ingest, retrieval, url_safety
+from app.services import answering, extract, incidents, ingest, retrieval, url_safety
+from app.services.request_context import reset_request_id, set_request_id
 
 
 @pytest.fixture()
@@ -247,6 +248,31 @@ def test_ingest_url_must_stay_within_selected_source_scope(source):
     assert "outside the selected source scope" in exc_info.value.detail
 
 
+def test_permission_metadata_requires_ref_for_non_public():
+    with pytest.raises(HTTPException) as exc_info:
+        routes_ingest._validate_permission_metadata_or_422("internal", None)
+
+    assert exc_info.value.status_code == 422
+    assert "permission_ref is required" in exc_info.value.detail
+
+
+def test_permission_metadata_is_normalized_for_public():
+    permission_type, permission_ref = routes_ingest._validate_permission_metadata_or_422(" Public ", " ")
+
+    assert permission_type == "public"
+    assert permission_ref is None
+
+
+def test_source_permission_validation_rejects_invalid_source(source):
+    source.permission_type = "restricted"
+    source.permission_ref = None
+
+    with pytest.raises(HTTPException) as exc_info:
+        routes_ingest._validate_source_permission_or_422(source)
+
+    assert exc_info.value.status_code == 422
+
+
 def test_persist_canonical_document_for_key_avoids_cross_source_collisions(tmp_path):
     payload = extract.to_canonical_document(
         url="https://example.com",
@@ -269,7 +295,7 @@ def test_query_request_rejects_invalid_mode():
 
 def test_ask_no_rag_mode_returns_direct_answer(monkeypatch, db_session):
     user = SimpleNamespace(id=1, role="User")
-    monkeypatch.setattr(routes_query, "answer_no_rag", lambda query: "direct answer")
+    monkeypatch.setattr(routes_query, "answer_no_rag", lambda query, **kwargs: "direct answer")
 
     response = routes_query.ask(
         payload=routes_query.QueryRequest(query="What is this?", mode=routes_query.QueryMode.no_rag),
@@ -278,6 +304,20 @@ def test_ask_no_rag_mode_returns_direct_answer(monkeypatch, db_session):
     )
 
     assert response == {"mode": "no-rag", "answer": "direct answer", "citations": []}
+
+
+def test_answer_no_rag_writes_model_call_audit(monkeypatch, db_session):
+    monkeypatch.setattr(answering, "ollama_generate", lambda **kwargs: "Model response")
+    output = answering.answer_no_rag("What is new?", db=db_session, user_id=42)
+
+    assert output == "Model response"
+    entry = db_session.query(AuditLog).order_by(AuditLog.id.desc()).first()
+    assert entry is not None
+    assert entry.action == "model.call"
+    metadata = json.loads(entry.metadata_json or "{}")
+    assert metadata.get("context") == "query.no_rag"
+    assert metadata.get("status") == "ok"
+    assert metadata.get("model") == answering.settings.ollama_model
 
 
 def test_answer_rag_uses_screenshot_as_multimodal_input(monkeypatch, fake_screenshot):
@@ -295,6 +335,10 @@ def test_answer_rag_uses_screenshot_as_multimodal_input(monkeypatch, fake_screen
     monkeypatch.setattr(answering, "ollama_generate", fake_generate)
     retrieved = [
         {
+            "chunk_id": 101,
+            "doc_id": 77,
+            "source_id": 8,
+            "chunk_type": "text",
             "text": "Revenue increased to 120.",
             "url": "https://example.com/report",
             "score": 0.9,
@@ -311,6 +355,53 @@ def test_answer_rag_uses_screenshot_as_multimodal_input(monkeypatch, fake_screen
     assert response["answer"] == "Grounded answer [1]"
     assert captured["model"] == "vision-model"
     assert captured["image_paths"] == [str(fake_screenshot)]
+    assert response["citations"][0]["source_id"] == 8
+    assert response["citations"][0]["doc_id"] == 77
+    assert response["citations"][0]["chunk_id"] == 101
+    assert response["citations"][0]["chunk_type"] == "text"
+
+
+def test_run_ingest_records_fetch_error_incident_when_html_fails(monkeypatch, db_session, source, temp_evidence_dirs, fake_screenshot):
+    _patch_ingest_runtime(monkeypatch, temp_evidence_dirs)
+
+    def fail_html(url):
+        raise RuntimeError("upstream timeout")
+
+    monkeypatch.setattr(ingest, "_html_fetch", fail_html)
+    monkeypatch.setattr(
+        ingest,
+        "_render_and_screenshot",
+        lambda url: ("Fallback title", "DOM text", str(fake_screenshot), "OCR text"),
+    )
+
+    result = ingest.run_ingest(db_session, source.id, "https://example.com/with-fallback")
+
+    assert result["status"] == "completed"
+    incident = db_session.query(Incident).filter(Incident.type == "fetch_error").order_by(Incident.id.desc()).first()
+    assert incident is not None
+    assert incident.status == "observed"
+    evidence_payload = json.loads(incident.evidence_refs or "{}")
+    assert "reason" in evidence_payload
+
+
+def test_log_ingest_incident_includes_request_id(db_session, source):
+    token = set_request_id("req-incident-42")
+    try:
+        incident = incidents.log_ingest_incident(
+            db_session,
+            incident_type="fetch_error",
+            source_id=source.id,
+            url="https://example.com/incident",
+            evidence_refs=[],
+            reason="network timeout",
+            severity="low",
+            status="observed",
+        )
+    finally:
+        reset_request_id(token)
+
+    payload = json.loads(incident.evidence_refs or "{}")
+    assert payload["metadata"]["request_id"] == "req-incident-42"
 
 
 def test_search_top_k_applies_threshold(monkeypatch):
@@ -410,12 +501,34 @@ def test_health_returns_200_when_required_components_up(monkeypatch, api_client)
     assert body["components"]["ollama"]["status"] == "down"
 
 
+def test_health_ready_returns_200_when_required_components_up(monkeypatch, api_client):
+    monkeypatch.setattr(app_main, "_check_postgres", lambda: {"status": "up"})
+    monkeypatch.setattr(app_main, "_check_qdrant", lambda: {"status": "up"})
+    monkeypatch.setattr(app_main, "_check_ollama", lambda: {"status": "up"})
+
+    response = api_client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
 def test_health_returns_503_when_required_component_down(monkeypatch, api_client):
     monkeypatch.setattr(app_main, "_check_postgres", lambda: {"status": "down", "error": "db down"})
     monkeypatch.setattr(app_main, "_check_qdrant", lambda: {"status": "up"})
     monkeypatch.setattr(app_main, "_check_ollama", lambda: {"status": "up"})
 
     response = api_client.get("/health")
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "degraded"
+
+
+def test_health_ready_returns_503_when_required_component_down(monkeypatch, api_client):
+    monkeypatch.setattr(app_main, "_check_postgres", lambda: {"status": "up"})
+    monkeypatch.setattr(app_main, "_check_qdrant", lambda: {"status": "down", "error": "qdrant down"})
+    monkeypatch.setattr(app_main, "_check_ollama", lambda: {"status": "up"})
+
+    response = api_client.get("/health/ready")
 
     assert response.status_code == 503
     assert response.json()["status"] == "degraded"

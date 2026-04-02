@@ -20,8 +20,8 @@ router = APIRouter(prefix="/api/ingest", tags=["ingest"])
 class SourceCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     base_url: str = Field(..., min_length=1, max_length=1000)
-    permission_type: str = "public"
-    permission_ref: str | None = None
+    permission_type: str = Field(default="public", min_length=1, max_length=100)
+    permission_ref: str | None = Field(default=None, max_length=255)
 
 
 class IngestRequest(BaseModel):
@@ -78,6 +78,24 @@ def _validate_ingest_url_matches_source_or_422(source: Source, url: str) -> None
     )
 
 
+def _validate_permission_metadata_or_422(permission_type: str, permission_ref: str | None) -> tuple[str, str | None]:
+    normalized_type = (permission_type or "").strip().lower()
+    if not normalized_type:
+        raise HTTPException(status_code=422, detail="Source permission_type is required.")
+
+    normalized_ref = (permission_ref or "").strip() or None
+    if normalized_type != "public" and not normalized_ref:
+        raise HTTPException(
+            status_code=422,
+            detail="permission_ref is required when permission_type is not 'public'.",
+        )
+    return normalized_type, normalized_ref
+
+
+def _validate_source_permission_or_422(source: Source) -> None:
+    _validate_permission_metadata_or_422(source.permission_type, source.permission_ref)
+
+
 @router.post("/sources")
 def create_source(
     payload: SourceCreate,
@@ -85,12 +103,16 @@ def create_source(
     db: Session = Depends(get_db),
 ):
     _validate_url_or_422(payload.base_url)
+    permission_type, permission_ref = _validate_permission_metadata_or_422(
+        payload.permission_type,
+        payload.permission_ref,
+    )
 
     source = Source(
         name=payload.name,
         base_url=payload.base_url,
-        permission_type=payload.permission_type,
-        permission_ref=payload.permission_ref,
+        permission_type=permission_type,
+        permission_ref=permission_ref,
     )
     db.add(source)
     db.flush()
@@ -115,6 +137,7 @@ def ingest_url(
     source = db.get(Source, payload.source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
+    _validate_source_permission_or_422(source)
     _validate_ingest_url_matches_source_or_422(source, payload.url)
 
     try:

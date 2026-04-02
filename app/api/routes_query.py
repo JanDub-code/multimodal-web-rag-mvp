@@ -33,11 +33,11 @@ def ask(
     db: Session = Depends(get_db),
 ):
     if payload.mode == QueryMode.no_rag:
-        answer = answer_no_rag(payload.query)
+        answer = answer_no_rag(payload.query, db=db, user_id=user.id)
         response = {"mode": QueryMode.no_rag.value, "answer": answer, "citations": []}
     else:
         retrieved = search_top_k(payload.query, top_k=payload.top_k)
-        rag = answer_rag(payload.query, retrieved)
+        rag = answer_rag(payload.query, retrieved, db=db, user_id=user.id)
         response = {"mode": QueryMode.rag.value, **rag}
 
     write_audit(

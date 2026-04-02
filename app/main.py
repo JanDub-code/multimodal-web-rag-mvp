@@ -104,6 +104,15 @@ app.include_router(query_router)
 
 @app.get("/health")
 def health():
+    return _health_response()
+
+
+@app.get("/health/ready")
+def health_ready():
+    return _health_response()
+
+
+def _health_response() -> JSONResponse:
     postgres = _check_postgres()
     qdrant = _check_qdrant()
     ollama = _check_ollama()

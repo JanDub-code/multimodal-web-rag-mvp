@@ -16,7 +16,7 @@ from app.config import get_settings
 from app.db.models import Chunk, Document, Embedding, Evidence, IngestJob, Source
 from app.services.chunking import chunk_sections
 from app.services.extract import persist_canonical_document_for_key, to_canonical_document
-from app.services.incidents import detect_captcha_heuristic, log_captcha_incident
+from app.services.incidents import detect_captcha_heuristic, log_captcha_incident, log_ingest_incident
 from app.services.multimodal import extract_structured_document_from_image, ollama_generate
 from app.services.retrieval import delete_vectors_by_chunk_ids, upsert_chunk_vectors
 from app.services.url_safety import SafeSession, UnsafeUrlError, validate_public_url
@@ -256,6 +256,19 @@ def _build_chunk_rows(canonical: dict) -> list[tuple[str, str]]:
     return rows
 
 
+def _classify_ingest_failure(exc: Exception) -> str:
+    if isinstance(exc, UnsafeUrlError):
+        return "policy_error"
+    lowered = str(exc).lower()
+    if any(keyword in lowered for keyword in ("playwright", "screenshot", "browser", "networkidle")):
+        return "render_error"
+    if any(keyword in lowered for keyword in ("json", "parse", "decode", "malformed")):
+        return "parse_error"
+    if any(keyword in lowered for keyword in ("timeout", "connection", "dns", "http", "fetch")):
+        return "fetch_error"
+    return "ingest_failure"
+
+
 def run_ingest(db: Session, source_id: int, url: str) -> dict:
     source = db.get(Source, source_id)
     if not source:
@@ -300,8 +313,22 @@ def run_ingest(db: Session, source_id: int, url: str) -> dict:
                     evidence_ids.append(ocr_evidence.id)
                     ocr_used = True
                     ocr_chars = len(ocr_text)
-        except Exception:
+        except Exception as exc:
             logger.warning("HTML fetch failed for %s, falling back to SCREENSHOT", url, exc_info=True)
+            try:
+                log_ingest_incident(
+                    db,
+                    incident_type="fetch_error",
+                    source_id=source_id,
+                    url=url,
+                    evidence_refs=evidence_ids,
+                    reason=str(exc),
+                    severity="low",
+                    status="observed",
+                    metadata={"stage": "html_fetch", "fallback": "screenshot"},
+                )
+            except Exception:
+                logger.exception("Failed to log fetch_error incident before fallback")
             strategy = "SCREENSHOT"
             title, dom_text, screenshot_path, ocr_text = _render_and_screenshot(url)
             text = _merge_text_sources(dom_text, ocr_text)
@@ -436,14 +463,38 @@ def run_ingest(db: Session, source_id: int, url: str) -> dict:
             "incident_id": incident_id,
         }
 
-    except Exception:
+    except Exception as exc:
         logger.exception("Ingest failed for source %d, URL %s", source_id, url)
         db.rollback()
+        incident_type = _classify_ingest_failure(exc)
+        failure_incident_id = None
+        try:
+            failure_incident = log_ingest_incident(
+                db,
+                incident_type=incident_type,
+                source_id=source_id,
+                url=url,
+                evidence_refs=[],
+                reason=str(exc),
+                severity="high",
+                status="open",
+                metadata={"stage": "run_ingest", "strategy": strategy},
+            )
+            failure_incident_id = failure_incident.id
+        except Exception:
+            logger.exception("Failed to log ingest failure incident")
         job.status = "failed"
+        job.error_code = incident_type
         job.finished_ts = datetime.now(timezone.utc)
         db.add(job)
         try:
             db.commit()
+            logger.info(
+                "Ingest marked as failed: job=%s incident_type=%s incident_id=%s",
+                job.id,
+                incident_type,
+                failure_incident_id,
+            )
         except Exception:
             logger.exception("Failed to update job status to 'failed'")
         raise

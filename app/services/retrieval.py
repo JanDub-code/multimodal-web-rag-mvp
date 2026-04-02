@@ -182,6 +182,7 @@ def upsert_chunk_vectors(rows: list[dict]) -> None:
                 id=int(row["chunk_id"]),
                 vector=_vector_to_list(vectors[idx]),
                 payload={
+                    "chunk_id": row["chunk_id"],
                     "doc_id": row["doc_id"],
                     "source_id": row["source_id"],
                     "url": row["url"],
@@ -242,6 +243,13 @@ def search_top_k(query: str, top_k: int = 5, min_score: float | None = None) -> 
             logger.debug("Skipping hit with score %.4f (threshold %.4f)", score, min_score)
             continue
         payload = hit.payload or {}
+        raw_chunk_id = getattr(hit, "id", None)
+        if raw_chunk_id is None:
+            raw_chunk_id = payload.get("chunk_id")
+        try:
+            chunk_id = int(raw_chunk_id) if raw_chunk_id is not None else None
+        except (TypeError, ValueError):
+            chunk_id = None
         citations = payload.get("citations_ref")
         if isinstance(citations, str):
             try:
@@ -251,6 +259,7 @@ def search_top_k(query: str, top_k: int = 5, min_score: float | None = None) -> 
         results.append(
             {
                 "score": score,
+                "chunk_id": chunk_id,
                 "doc_id": payload.get("doc_id"),
                 "source_id": payload.get("source_id"),
                 "text": payload.get("text", ""),

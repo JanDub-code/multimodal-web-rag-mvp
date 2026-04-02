@@ -18,7 +18,8 @@ Repo je záměrně malé. Fokus je na použitelný local Docker run a provozní 
 - režimy `rag` a `no-rag`
 - lokální auth, RBAC, audit log
 - refresh token flow (DB-backed, rotace, logout revoke)
-- jednoduchá CAPTCHA heuristika + incident
+- incident flow pro `captcha`, `fetch_error` a ingest failure scénáře
+- explicitní audit event `model.call` pro LLM volání z query vrstvy
 
 ## 2) Runtime profily
 
@@ -81,6 +82,7 @@ alembic upgrade head
 ## 5) Health a request ID
 
 - `GET /health` kontroluje `postgres` + `qdrant` jako required komponenty.
+- `GET /health/ready` vrací stejný readiness výsledek pro required komponenty.
 - `ollama` je reportovaná jako optional komponenta.
 - Endpoint vrací:
   - `200`, když required komponenty běží,
@@ -115,6 +117,9 @@ alembic upgrade head
 - `POST /api/query/` -> všechny role
 
 `POST /api/ingest/run` validuje, že URL zůstává v scope `source.base_url`.
+`POST /api/ingest/sources` validuje minimum pro permission metadata:
+- `permission_type` je povinný,
+- pokud `permission_type != public`, je povinný i `permission_ref`.
 
 ## 8) Důležitá konfigurace
 

@@ -1,7 +1,10 @@
 import logging
 from pathlib import Path
 
+from sqlalchemy.orm import Session
+
 from app.config import get_settings
+from app.services.audit import write_audit
 from app.services.multimodal import ollama_generate
 
 logger = logging.getLogger(__name__)
@@ -34,15 +37,51 @@ def _collect_screenshot_paths(retrieved: list[dict]) -> list[str]:
     return image_paths
 
 
-def answer_no_rag(query: str) -> str:
+def _audit_model_call(
+    db: Session | None,
+    *,
+    user_id: int | None,
+    model: str,
+    context: str,
+    status: str,
+    image_count: int,
+    prompt_chars: int,
+) -> None:
+    if db is None:
+        return
+    write_audit(
+        db,
+        action="model.call",
+        object_ref=f"model:{model}",
+        user_id=user_id,
+        metadata={
+            "context": context,
+            "status": status,
+            "model": model,
+            "image_count": image_count,
+            "prompt_chars": prompt_chars,
+        },
+    )
+
+
+def answer_no_rag(query: str, db: Session | None = None, user_id: int | None = None) -> str:
     prompt = f"Answer briefly and clearly:\n{query}"
     model_output = ollama_generate(prompt=prompt, model=settings.ollama_model, image_paths=None, timeout=60)
+    _audit_model_call(
+        db,
+        user_id=user_id,
+        model=settings.ollama_model,
+        context="query.no_rag",
+        status="ok" if model_output else "unavailable_or_error",
+        image_count=0,
+        prompt_chars=len(prompt),
+    )
     if model_output:
         return model_output.strip()
     return _OLLAMA_UNAVAILABLE_MSG.format(settings.ollama_model)
 
 
-def answer_rag(query: str, retrieved: list[dict]) -> dict:
+def answer_rag(query: str, retrieved: list[dict], db: Session | None = None, user_id: int | None = None) -> dict:
     if not retrieved:
         return {
             "answer": "No relevant documents found for this query.",
@@ -58,6 +97,10 @@ def answer_rag(query: str, retrieved: list[dict]) -> dict:
                 "index": idx,
                 "url": item.get("url"),
                 "score": item.get("score"),
+                "source_id": item.get("source_id"),
+                "doc_id": item.get("doc_id"),
+                "chunk_id": item.get("chunk_id"),
+                "chunk_type": item.get("chunk_type"),
                 "evidence": item.get("citations"),
             }
         )
@@ -76,6 +119,15 @@ def answer_rag(query: str, retrieved: list[dict]) -> dict:
         model=model_name,
         image_paths=image_paths or None,
         timeout=max(60, settings.vision_timeout_seconds),
+    )
+    _audit_model_call(
+        db,
+        user_id=user_id,
+        model=model_name,
+        context="query.rag",
+        status="ok" if model_output else "unavailable_or_error",
+        image_count=len(image_paths),
+        prompt_chars=len(prompt),
     )
     if not model_output:
         return {

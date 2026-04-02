@@ -27,7 +27,20 @@ Definition of Done:
 - testy a migrace běží v CI na každém PR,
 - refresh token tabulka nemá neomezený růst bez údržby.
 
-## P2 - růstové věci 
+## P1.5 - rychlé implementace (hotovo 2026-04-02)
+
+- [x] Přidat `GET /health/ready` endpoint (readiness check stejně jako `/health`).
+- [x] Zpřísnit permission metadata validaci pro source/ingest (`permission_type` povinné, `permission_ref` povinné pro non-`public`).
+- [x] Rozšířit citation payload v `rag` odpovědi o `source_id`, `doc_id`, `chunk_id`, `chunk_type`.
+- [x] Dopsat smoke testy pro `health/ready`, permission metadata validaci a citation linkage.
+
+## P1.6 - lehké navazující TODO (architektura drift)
+
+- [x] Sjednotit architektura dokument s realitou názvů (`inference` vs `ollama`, `migrations/` vs `alembic/`).
+- [x] Doplnit explicitní audit event pro model call (`model.call`) včetně request ID a error stavu.
+- [x] Rozšířit incident taxonomy i mimo CAPTCHA (parse/render/fetch chyby) bez změny topologie služby.
+
+## P2 - růstové věci
 
 - [ ] Consent enforcement model (povinné blokace ingestu bez souhlasu).
 - [ ] Async job vrstva (`redis` + workeři) pro ingest/AI orchestrace.
@@ -62,7 +75,7 @@ Po stabilizaci a uzavření P0/P1 se může odstranit.
 | Runtime profily `core` / `core+ollama` | SPLNĚNO | `ollama` je profile-based |
 | One-command start | SPLNĚNO | `scripts/dev-up.sh` |
 | Service-name konfigurace (`postgres`, `qdrant`) | SPLNĚNO | compose env override |
-| Health endpoint | SPLNĚNO | `GET /health` required/optional komponenty |
+| Health endpointy | SPLNĚNO | `GET /health` + `GET /health/ready` |
 | Request ID propagation | SPLNĚNO | `X-Request-ID` middleware + audit metadata |
 | Alembic migrace | SPLNĚNO | baseline migrace + explicitní `migrate` step |
 | Seed oddělený od schema managementu | SPLNĚNO | `scripts/init_db.py` seed-only |
@@ -77,4 +90,3 @@ Po stabilizaci a uzavření P0/P1 se může odstranit.
 - inference contract jako separátní vrstva,
 - rozhodnutí/migrace Qdrant vs `pgvector`,
 - plná observability/backup platforma.
-
