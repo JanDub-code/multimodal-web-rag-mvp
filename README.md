@@ -26,6 +26,7 @@ Repo je záměrně malé. Fokus je na použitelný local Docker run a provozní 
 ### `core` (doporučený default)
 
 Služby:
+- `frontend`
 - `api`
 - `postgres`
 - `qdrant`
@@ -61,11 +62,12 @@ Script dělá:
 1. start infrastruktury,
 2. explicitní `alembic upgrade head`,
 3. seed default userů (`python -m scripts.init_db`),
-4. start API.
+4. start API + frontend reverse proxy.
 
 Open:
-- `http://127.0.0.1:8000/`
-- `http://127.0.0.1:8000/query`
+- `http://127.0.0.1:8080/` (frontend)
+- `http://127.0.0.1:8080/query`
+- `http://127.0.0.1:8000/` (API direct)
 - `http://127.0.0.1:8000/docs`
 - `http://127.0.0.1:8000/health`
 

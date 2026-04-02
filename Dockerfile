@@ -32,6 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt ./
 RUN pip install --upgrade pip setuptools wheel \
+    && pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.3.1+cpu" \
     && pip install -r requirements.txt \
     && python -m playwright install chromium
 

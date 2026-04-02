@@ -23,13 +23,14 @@ echo "[dev-up] Ensuring default users..."
 docker compose run --rm api python -m scripts.init_db
 
 if [[ "$WITH_OLLAMA" == "--with-ollama" ]]; then
-  docker compose --profile ollama up -d api
+  docker compose --profile ollama up -d api frontend
 else
-  docker compose up -d api
+  docker compose up -d api frontend
 fi
 
 echo
 echo "[dev-up] Done."
+echo "Frontend: http://127.0.0.1:8080"
 echo "API: http://127.0.0.1:8000"
 echo "Health: http://127.0.0.1:8000/health"
 echo
