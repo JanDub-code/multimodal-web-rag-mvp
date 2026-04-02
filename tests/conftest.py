@@ -1,12 +1,18 @@
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.db.models import User
+from app.db.session import get_db
 from app.db.session import Base
+from app.api import routes_auth
+from app.main import app
+from app.services.security import hash_password
 
 
 @pytest.fixture()
@@ -46,3 +52,31 @@ def fake_screenshot(temp_evidence_dirs):
     path = Path(temp_evidence_dirs["screenshot_dir"]) / "screen.png"
     Image.new("RGB", (32, 32), color="white").save(path)
     return path
+
+
+@pytest.fixture()
+def user_factory(db_session):
+    def _create(username: str, password: str, role: str = "User") -> User:
+        user = User(username=username, password_hash=hash_password(password), role=role)
+        db_session.add(user)
+        db_session.commit()
+        db_session.refresh(user)
+        return user
+
+    return _create
+
+
+@pytest.fixture()
+def api_client(db_session):
+    routes_auth._login_attempts.clear()
+
+    def _override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = _override_get_db
+    try:
+        with TestClient(app) as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
+        routes_auth._login_attempts.clear()

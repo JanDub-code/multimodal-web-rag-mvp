@@ -24,6 +24,64 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: local-mvp-migrate
+    command: ["alembic", "upgrade", "head"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/multimodal_mvp
+      QDRANT_URL: http://qdrant:6333
+      OLLAMA_URL: ${DOCKER_OLLAMA_URL:-http://ollama:11434}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - tools
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: local-mvp-api
+    env_file:
+      - .env
+    environment:
+      APP_HOST: 0.0.0.0
+      DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/multimodal_mvp
+      QDRANT_URL: http://qdrant:6333
+      OLLAMA_URL: ${DOCKER_OLLAMA_URL:-http://ollama:11434}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/evidence:/app/data/evidence
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: local-mvp-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    profiles:
+      - ollama
+
 volumes:
   pgdata:
   qdrant_data:
+  ollama_data:

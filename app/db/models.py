@@ -20,6 +20,22 @@ class User(Base):
     created_ts: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+    __table_args__ = (
+        Index("ix_refresh_tokens_user_id", "user_id"),
+        Index("ix_refresh_tokens_token_hash", "token_hash", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    issued_ts: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    expires_ts: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    revoked_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    replaced_by_token_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+
 class Source(Base):
     __tablename__ = "sources"
 

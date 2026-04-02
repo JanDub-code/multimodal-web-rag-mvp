@@ -6,7 +6,8 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.api import routes_ingest, routes_query
-from app.db.models import Chunk, Document, Incident, IngestJob, Source
+from app.db.models import AuditLog, Chunk, Document, Incident, IngestJob, RefreshToken, Source
+from app import main as app_main
 from app.services import answering, extract, ingest, retrieval, url_safety
 
 
@@ -393,3 +394,98 @@ def test_rag_mode_returns_no_results_message(monkeypatch, db_session):
     assert response["mode"] == "rag"
     assert response["citations"] == []
     assert response["answer"] == "No relevant documents found for this query."
+
+
+def test_health_returns_200_when_required_components_up(monkeypatch, api_client):
+    monkeypatch.setattr(app_main, "_check_postgres", lambda: {"status": "up"})
+    monkeypatch.setattr(app_main, "_check_qdrant", lambda: {"status": "up"})
+    monkeypatch.setattr(app_main, "_check_ollama", lambda: {"status": "down", "error": "offline"})
+
+    response = api_client.get("/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["components"]["ollama"]["required"] is False
+    assert body["components"]["ollama"]["status"] == "down"
+
+
+def test_health_returns_503_when_required_component_down(monkeypatch, api_client):
+    monkeypatch.setattr(app_main, "_check_postgres", lambda: {"status": "down", "error": "db down"})
+    monkeypatch.setattr(app_main, "_check_qdrant", lambda: {"status": "up"})
+    monkeypatch.setattr(app_main, "_check_ollama", lambda: {"status": "up"})
+
+    response = api_client.get("/health")
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "degraded"
+
+
+def test_health_echoes_request_id_header(api_client):
+    response = api_client.get("/health", headers={"X-Request-ID": "req-health-123"})
+
+    assert response.status_code in (200, 503)
+    assert response.headers["X-Request-ID"] == "req-health-123"
+
+
+def test_login_returns_refresh_token_and_audit_request_id(api_client, db_session, user_factory):
+    user_factory("alice", "secret", role="User")
+
+    response = api_client.post(
+        "/api/auth/login",
+        data={"username": "alice", "password": "secret"},
+        headers={"X-Request-ID": "req-login-1"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["access_token"]
+    assert body["refresh_token"]
+    assert body["token_type"] == "bearer"
+    assert response.headers["X-Request-ID"] == "req-login-1"
+
+    token_count = db_session.query(RefreshToken).count()
+    assert token_count == 1
+
+    latest_audit = db_session.query(AuditLog).order_by(AuditLog.id.desc()).first()
+    assert latest_audit is not None
+    metadata = json.loads(latest_audit.metadata_json or "{}")
+    assert metadata.get("request_id") == "req-login-1"
+
+
+def test_refresh_rotates_token_and_rejects_reuse(api_client, db_session, user_factory):
+    user_factory("bob", "secret", role="User")
+
+    login = api_client.post("/api/auth/login", data={"username": "bob", "password": "secret"})
+    assert login.status_code == 200
+    old_refresh = login.json()["refresh_token"]
+
+    refreshed = api_client.post("/api/auth/refresh", json={"refresh_token": old_refresh})
+    assert refreshed.status_code == 200
+    new_refresh = refreshed.json()["refresh_token"]
+    assert new_refresh != old_refresh
+
+    reused = api_client.post("/api/auth/refresh", json={"refresh_token": old_refresh})
+    assert reused.status_code == 401
+
+    # New token remains valid and can rotate again.
+    refreshed_again = api_client.post("/api/auth/refresh", json={"refresh_token": new_refresh})
+    assert refreshed_again.status_code == 200
+
+    active_tokens = db_session.query(RefreshToken).filter(RefreshToken.revoked_ts.is_(None)).count()
+    assert active_tokens == 1
+
+
+def test_logout_revokes_refresh_token(api_client, db_session, user_factory):
+    user_factory("carol", "secret", role="User")
+
+    login = api_client.post("/api/auth/login", data={"username": "carol", "password": "secret"})
+    assert login.status_code == 200
+    refresh_token = login.json()["refresh_token"]
+
+    logout = api_client.post("/api/auth/logout", json={"refresh_token": refresh_token})
+    assert logout.status_code == 200
+    assert logout.json() == {"status": "ok"}
+
+    refresh_after_logout = api_client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+    assert refresh_after_logout.status_code == 401

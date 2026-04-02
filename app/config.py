@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     dom_snapshot_dir: str = "./data/evidence/dom"
 
     access_token_expire_minutes: int = 480
+    refresh_token_expire_minutes: int = 43200
     quality_threshold_chars: int = 300
     retrieval_min_score: float = 0.25
 

@@ -1,71 +1,74 @@
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from uuid import uuid4
 
 import requests
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import text as sa_text
 
 from app.api.routes_auth import router as auth_router
 from app.api.routes_ingest import router as ingest_router
 from app.api.routes_query import router as query_router
 from app.config import get_settings
+from app.db.session import engine
+from app.services.request_context import get_request_id, reset_request_id, set_request_id
+
+
+class RequestIdLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = get_request_id() or "-"
+        return True
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [req=%(request_id)s] %(name)s: %(message)s",
+)
+for _handler in logging.getLogger().handlers:
+    _handler.addFilter(RequestIdLogFilter())
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-
 settings = get_settings()
+
+
+def _check_qdrant() -> dict:
+    try:
+        from app.services.retrieval import get_qdrant
+
+        get_qdrant().get_collections()
+        return {"status": "up"}
+    except Exception as exc:
+        return {"status": "down", "error": str(exc)}
+
+
+def _check_postgres() -> dict:
+    try:
+        with engine.connect() as conn:
+            conn.execute(sa_text("SELECT 1"))
+        return {"status": "up"}
+    except Exception as exc:
+        return {"status": "down", "error": str(exc)}
+
+
+def _check_ollama() -> dict:
+    try:
+        response = requests.get(settings.ollama_url, timeout=3)
+        if response.ok:
+            return {"status": "up"}
+        return {"status": "down", "error": f"http_status:{response.status_code}"}
+    except Exception as exc:
+        return {"status": "down", "error": str(exc)}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup checks: verify required services are reachable."""
-    # --- Secret key check ---
-    if settings.app_secret_key == "change-me":
-        logger.warning("APP_SECRET_KEY is still the default 'change-me'. Change it in .env for production!")
-
-    # --- SentenceTransformer check ---
-    try:
-        from app.services.retrieval import get_embedder
-        get_embedder()
-        logger.info("Embedding model loaded successfully.")
-    except Exception:
-        logger.exception("FATAL: Cannot load sentence-transformers model. Install sentence-transformers and use Python 3.11/3.12.")
-        raise
-
-    # --- Qdrant check ---
-    try:
-        from app.services.retrieval import get_qdrant
-        get_qdrant().get_collections()
-        logger.info("Qdrant is reachable.")
-    except Exception:
-        logger.exception("FATAL: Cannot connect to Qdrant at %s", settings.qdrant_url)
-        raise
-
-    # --- PostgreSQL check ---
-    try:
-        from sqlalchemy import text as sa_text
-        from app.db.session import engine
-        with engine.connect() as conn:
-            conn.execute(sa_text("SELECT 1"))
-        logger.info("PostgreSQL is reachable.")
-    except Exception:
-        logger.exception("FATAL: Cannot connect to PostgreSQL at %s", settings.database_url)
-        raise
-
-    # --- Ollama check (warn only) ---
-    try:
-        resp = requests.get(settings.ollama_url, timeout=5)
-        if resp.ok:
-            logger.info("Ollama is reachable at %s", settings.ollama_url)
-        else:
-            logger.warning("Ollama returned status %d. LLM answers may not work.", resp.status_code)
-    except Exception:
-        logger.warning("Ollama is NOT reachable at %s. LLM answers will be unavailable until Ollama is started.", settings.ollama_url)
-
-    yield  # app runs
+    if settings.app_secret_key in {"change-me", "change-me-in-production"}:
+        logger.warning("APP_SECRET_KEY is still set to a default placeholder. Change it in .env for production.")
+    yield
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
@@ -75,9 +78,47 @@ static_path = Path("app/ui/static")
 if static_path.exists():
     app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
 
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    incoming_request_id = request.headers.get("X-Request-ID", "").strip()
+    request_id = incoming_request_id or str(uuid4())
+    token = set_request_id(request_id)
+    request.state.request_id = request_id
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        logger.info("%s %s -> %s", request.method, request.url.path, response.status_code)
+        return response
+    except Exception:
+        logger.exception("Unhandled error for %s %s", request.method, request.url.path)
+        raise
+    finally:
+        reset_request_id(token)
+
+
 app.include_router(auth_router)
 app.include_router(ingest_router)
 app.include_router(query_router)
+
+
+@app.get("/health")
+def health():
+    postgres = _check_postgres()
+    qdrant = _check_qdrant()
+    ollama = _check_ollama()
+
+    required_ok = postgres["status"] == "up" and qdrant["status"] == "up"
+    body = {
+        "status": "ok" if required_ok else "degraded",
+        "components": {
+            "api": {"status": "up"},
+            "postgres": postgres,
+            "qdrant": qdrant,
+            "ollama": {"required": False, **ollama},
+        },
+    }
+    return JSONResponse(status_code=200 if required_ok else 503, content=body)
 
 
 @app.get("/", response_class=HTMLResponse)

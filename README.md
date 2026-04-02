@@ -4,9 +4,7 @@ Jednoduché lokální MVP pro ingest webových stránek a dotazování nad nimi 
 - `rag` = retrieval z Qdrantu + odpověď s citacemi
 - `no-rag` = přímý dotaz na LLM bez retrieval kroku
 
-Projekt je záměrně malý. Dokumentace je proto konsolidovaná do tohoto README a jednoho samostatného souboru k výběru modelu:
-- `README.md` = instalace, spuštění, chování aplikace, limity
-- `VYBER_MODELU_QWEN35.md` = doporučení modelů pro domácí GPU a školní server / MetaCentrum
+Repo je záměrně malé. Fokus je na použitelný local Docker run a provozní minimum, ne na velký refactor architektury.
 
 ## 1) Co projekt umí
 
@@ -18,98 +16,79 @@ Projekt je záměrně malý. Dokumentace je proto konsolidovaná do tohoto READM
 - canonical document + chunking + embeddings
 - Qdrant retrieval se score thresholdem
 - režimy `rag` a `no-rag`
-- lokální auth, RBAC a audit log
-- jednoduchá CAPTCHA heuristika
-- deduplikace při re-ingestu stejné URL
+- lokální auth, RBAC, audit log
+- refresh token flow (DB-backed, rotace, logout revoke)
+- jednoduchá CAPTCHA heuristika + incident
 
-## 2) Použitý stack
+## 2) Runtime profily
 
-- **API / app**: FastAPI
-- **LLM odpovědi**: Ollama
-- **embeddingy**: `sentence-transformers/all-MiniLM-L6-v2`
-- **vektorová DB**: Qdrant
-- **relační DB**: PostgreSQL
-- **render fallback**: Playwright
-- **OCR fallback**: pytesseract
-- **volitelná vision vrstva**: Ollama multimodal model (např. Qwen rodina)
+### `core` (doporučený default)
 
-Výchozí lokální LLM v `.env`:
-- `llama3.2:3b`
+Služby:
+- `api`
+- `postgres`
+- `qdrant`
 
-## 3) Požadavky
+LLM backend (Ollama) je v tomto režimu volitelný/external. API běží i bez něj, ale LLM odpovědi nebudou dostupné.
 
-- Windows nebo Linux
-- Docker / Docker Desktop
-- Python **3.11 nebo 3.12**
-- nainstalovaná Ollama
-- pro nejlepší OCR fallback je vhodný Tesseract v systému; když chybí a je nastavený vision model v Ollamě, aplikace zkusí vision OCR fallback
+### `core + ollama`
 
-## 4) Instalace
+Stejné jako `core`, navíc kontejner:
+- `ollama`
 
-### Infrastruktura
+## 3) One-command local run
 
-```powershell
-docker compose up -d postgres qdrant
-```
-
-### Python prostředí
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip setuptools wheel
-pip install -r requirements.txt
-playwright install chromium
-Copy-Item .env.example .env
-```
-
-Na Linuxu je možné místo systémového Playwright cache použít lokální projektovou cestu:
+Zkopíruj env:
 
 ```bash
-PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers python -m playwright install chromium
+cp .env.example .env
 ```
 
-Pokud PowerShell blokuje aktivaci:
+Spuštění `core`:
 
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-. .\.venv\Scripts\Activate.ps1
+```bash
+./scripts/dev-up.sh
 ```
 
-### Ollama
+Spuštění `core + ollama`:
 
-```powershell
-ollama pull llama3.2:3b
+```bash
+./scripts/dev-up.sh --with-ollama
 ```
 
-Před spuštěním změň v `.env` hodnotu `APP_SECRET_KEY`.
-
-## 5) Spuštění
-
-### Inicializace DB
-
-```powershell
-python -m scripts.init_db
-```
-
-### Start aplikace
-
-```powershell
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Nespouštěj `python main.py`. Správný entrypoint je `uvicorn app.main:app`.
-
-Aplikace po startu kontroluje:
-- embedding model
-- Qdrant
-- PostgreSQL
-- Ollamu
+Script dělá:
+1. start infrastruktury,
+2. explicitní `alembic upgrade head`,
+3. seed default userů (`python -m scripts.init_db`),
+4. start API.
 
 Open:
 - `http://127.0.0.1:8000/`
 - `http://127.0.0.1:8000/query`
 - `http://127.0.0.1:8000/docs`
+- `http://127.0.0.1:8000/health`
+
+## 4) DB migrace
+
+Schéma je řízené přes Alembic:
+
+```bash
+alembic upgrade head
+```
+
+`scripts/init_db.py` už jen seeduje default uživatele. Schéma se nevytváří přes `create_all`.
+
+## 5) Health a request ID
+
+- `GET /health` kontroluje `postgres` + `qdrant` jako required komponenty.
+- `ollama` je reportovaná jako optional komponenta.
+- Endpoint vrací:
+  - `200`, když required komponenty běží,
+  - `503`, když některá required komponenta neběží.
+- API podporuje `X-Request-ID`:
+  - pokud přijde v requestu, vrací se stejná hodnota v response,
+  - pokud chybí, API ji vygeneruje,
+  - request ID se propisuje do auditu.
 
 ## 6) Default uživatelé
 
@@ -120,105 +99,67 @@ Open:
 | `analyst` | `analyst123` | Analyst |
 | `user` | `user123` | User |
 
-## 7) Jak to funguje
+## 7) Důležité endpointy a role
 
-### Ingest
+### Auth
 
-1. validace URL a role
-2. pokus o HTML fetch
-3. když je text slabý, použije se Playwright render
-4. když je potřeba, doplní se text z full-page screenshotu přes OCR
-5. volitelně se nad screenshotem spustí vision extrakce do sekcí a tabulek
-6. uloží se evidence
-7. pokud je detekovaná CAPTCHA / bot challenge, uloží se incident a stránka se neindexuje
-8. jinak se vytvoří canonical document
-9. textové sekce a případné tabulky se rozdělí na chunky
-10. chunky se naembedují a uloží do Qdrantu
-11. při re-ingestu stejné URL se stará verze smaže
+- `POST /api/auth/login` -> vrací `access_token` + `refresh_token`
+- `POST /api/auth/refresh` -> rotate refresh token + nový access token
+- `POST /api/auth/logout` -> revoke refresh token
 
-### Query
+### Ingest / Query
 
-- `mode=rag`: query embedding -> Qdrant search -> score filter -> LLM odpověď s citacemi
-- když jsou v retrievalu dostupné screenshoty a je zapnutý vision mód, pošlou se spolu s textovým kontextem do multimodálního modelu
-- `mode=no-rag`: přímý dotaz na LLM bez retrieval
-
-`mode` je validovaný enum, takže jsou povoleny jen hodnoty `rag` a `no-rag`.
-
-## 8) Důležité endpointy a role
-
-- `POST /api/auth/login` -> login
 - `GET /api/ingest/sources` -> všechny role
 - `POST /api/ingest/sources` -> `Admin`, `Curator`
 - `POST /api/ingest/run` -> `Admin`, `Curator`
 - `POST /api/query/` -> všechny role
 
-`POST /api/ingest/run` navíc validuje, že cílová URL zůstává v scope zvoleného `source.base_url`.
-Při detekci CAPTCHA vrátí ingest `status=blocked_captcha`, uloží evidence + incident, ale nevytvoří indexovaný dokument.
+`POST /api/ingest/run` validuje, že URL zůstává v scope `source.base_url`.
 
-## 9) Důležitá konfigurace
+## 8) Důležitá konfigurace
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `APP_SECRET_KEY` | `change-me` | JWT secret, změň |
-| `OLLAMA_MODEL` | `llama3.2:3b` | textový model pro generování odpovědí |
-| `OLLAMA_VISION_MODEL` | prázdné | multimodální model pro screenshoty, typicky Qwen |
-| `VISION_ANSWER_ENABLED` | `false` | při `rag` pošle relevantní screenshoty i do LLM |
-| `VISION_EXTRACT_ON_INGEST` | `false` | při screenshot fallbacku zkusí structured vision extrakci |
-| `VISION_MAX_IMAGES` | `2` | kolik screenshotů max posílat do answer fáze |
-| `RETRIEVAL_MIN_SCORE` | `0.25` | minimální relevance retrieval hitu |
-| `QUALITY_THRESHOLD_CHARS` | `300` | hranice pro přepnutí na render fallback |
-| `FETCH_VERIFY_SSL` | `true` | ověření TLS certifikátů při HTML fetchi; pro lokální problematické CA lze v dev prostředí dočasně vypnout |
+| `DATABASE_URL` | `postgresql+psycopg://app:app@localhost:5432/multimodal_mvp` | DB URL pro non-docker run |
+| `QDRANT_URL` | `http://localhost:6333` | Qdrant URL pro non-docker run |
+| `OLLAMA_URL` | `http://localhost:11434` | Ollama URL |
+| `DOCKER_OLLAMA_URL` | prázdné | docker override pro API/migrate (`http://ollama:11434` nebo `http://host.docker.internal:11434`) |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `480` | Access token TTL |
+| `REFRESH_TOKEN_EXPIRE_MINUTES` | `43200` | Refresh token TTL |
+| `OLLAMA_MODEL` | `llama3.2:3b` | textový model |
+| `OLLAMA_VISION_MODEL` | prázdné | multimodální model |
+| `VISION_ANSWER_ENABLED` | `false` | při `rag` pošle screenshoty i do LLM |
+| `VISION_EXTRACT_ON_INGEST` | `false` | structured vision extrakce při ingestu |
+| `RETRIEVAL_MIN_SCORE` | `0.25` | minimální relevance hitu |
+| `QUALITY_THRESHOLD_CHARS` | `300` | hranice pro render fallback |
 
-## 10) Testy
+## 9) Testy
 
-Projekt obsahuje smoke testy pro:
-- HTML ingest
-- RENDERED_DOM ingest
-- SCREENSHOT fallback
-- structured vision ingest nad screenshotem
-- vision failure fallback zpět na OCR/text
-- invalid `mode`
-- `no-rag` query
-- multimodální `rag` answer se screenshotem
-- retrieval threshold
-- `rag` bez výsledků
-- blokace ingestu mimo scope vybraného source
-- CAPTCHA stránka se neindexuje a vyčistí starou verzi dokumentu
+Smoke testy pokrývají:
+- ingest fallbacky (HTML/RENDERED_DOM/SCREENSHOT),
+- CAPTCHA incident flow,
+- RAG/no-RAG query flow,
+- retrieval threshold + rerank,
+- health endpoint chování,
+- request ID echo,
+- refresh token rotaci a logout revoke.
 
 Spuštění:
 
-```powershell
+```bash
 pytest
 ```
 
-## 11) Bezpečnost a limity
-
-### Bezpečnost
-
-- blokované jsou neveřejné / lokální IP adresy i po DNS resolve
-- kontrolují se i redirecty při fetchi
-- login rate limit je 5 pokusů za 60 sekund na IP
-- audit log ukládá důležité akce
-
-### Aktuální limity MVP
+## 10) Aktuální limity MVP
 
 - ingest je synchronní
-- retrieval je čistě vektorový, bez BM25
-- multimodální answer a screenshot ingest už umí jednoduchou vision vrstvu, ale ne detailní layout parsing s bounding boxy
+- retrieval je čistě vektorový (Qdrant)
 - bez běžící Ollamy nejsou LLM odpovědi dostupné
-- bez migrací schématu je změna DB řešená znovu přes `init_db`
 - permission metadata zatím nejsou promítnuté do retrieval filtru
+- bez workers/redis není async job orchestrace
 
-### Plánované rozšíření
-
-Záměrně odložená je nejtěžší část:
-- bounding boxy a přesná citace na oblast screenshotu
-- robustní layout detekce bloků stránky
-- silnější extrakce tabulek do přesnější struktury
-
-Aktuální verze proto řeší nejdřív praktické minimum: multimodální answer nad relevantním screenshotem a volitelnou structured vision extrakci při ingestu.
-
-## 12) Výběr modelu pro lokální testování a větší GPU
+## 11) Výběr modelu
 
 Doporučení k rodině Qwen3.5 je v souboru:
 - `VYBER_MODELU_QWEN35.md`
