@@ -1,156 +1,148 @@
 # Local Multimodal MVP
 
-Jednoduché lokální MVP pro ingest webových stránek a dotazování nad nimi ve dvou režimech:
-- `rag` = retrieval z Qdrantu + odpověď s citacemi
-- `no-rag` = přímý dotaz na LLM bez retrieval kroku
+Lokální MVP pro ingest webových stránek a dotazování ve dvou režimech:
+- `rag`: retrieval z Qdrantu + odpověď s citacemi
+- `no-rag`: přímé volání LLM bez retrieval kroku
 
-Repo je záměrně malé. Fokus je na použitelný local Docker run a provozní minimum, ne na velký refactor architektury.
+Stav README odpovídá aktuální implementaci v repu (kód + `Architektura_systemu_2026-04-02.md` + `TODO.md`).
 
-## 1) Co projekt umí
+## 1) Aktuální architektonická realita
 
-- ingest URL do znalostní báze
-- fallback strategie `HTML -> RENDERED_DOM -> SCREENSHOT`
-- OCR doplnění textu ze screenshotu, když je DOM slabý
-- volitelná vision extrakce ze screenshotu do strukturovaných sekcí a tabulek
-- multimodální answer fáze: při `rag` může LLM dostat i relevantní screenshoty
-- canonical document + chunking + embeddings
-- Qdrant retrieval se score thresholdem
-- režimy `rag` a `no-rag`
-- lokální auth, RBAC, audit log
-- refresh token flow (DB-backed, rotace, logout revoke)
-- incident flow pro `captcha`, `fetch_error` a ingest failure scénáře
-- explicitní audit event `model.call` pro LLM volání z query vrstvy
+- jedna hlavní FastAPI aplikace (`api`) s UI stránkami `/` a `/query`
+- PostgreSQL jako source of truth pro metadata, auth, audit, ingest a incidenty
+- Qdrant pro embeddingy a retrieval
+- evidence artefakty ukládané do `./data/evidence` (bind mount do `api` kontejneru)
+- Ollama jako volitelný inference backend (externí host nebo compose služba s profilem `ollama`)
+- Alembic migrace přes compose službu `migrate` (profil `tools`)
 
-## 2) Runtime profily
+## 2) Co je implementováno
 
-### `core` (doporučený default)
+- ingest URL do KB s fallback strategií `HTML -> RENDERED_DOM -> SCREENSHOT`
+- OCR doplnění textu ze screenshotu (Tesseract; při nedostupnosti fallback přes vision model)
+- volitelná vision extrakce při ingestu (`VISION_EXTRACT_ON_INGEST=true`) do sekcí/tabulek
+- canonical dokument, chunking (`text` + `table`) a embeddingy do Qdrantu
+- `rag`/`no-rag` query flow
+- retrieval threshold + heuristický lexical reranking + deduplikace podle `doc_id`/`url`
+- citace navázané na `source_id`, `doc_id`, `chunk_id`, `chunk_type` + evidence metadata
+- lokální auth + RBAC + refresh token rotace + logout revoke
+- audit log včetně explicitního eventu `model.call`
+- incident flow (`captcha`, `fetch_error`, `render_error`, `parse_error`, `policy_error`, `ingest_failure`)
+- request correlation přes `X-Request-ID` (echo do response, propagace do auditu/incident metadata)
 
-Služby:
-- `frontend`
-- `api`
+## 3) Runtime režimy
+
+### Default (`./scripts/dev-up.sh`)
+
+Spouští stack:
 - `postgres`
 - `qdrant`
+- `migrate` (jednorázově)
+- seed default userů
+- `api`
+- `frontend` (nginx reverzní proxy)
 
-LLM backend (Ollama) je v tomto režimu volitelný/external. API běží i bez něj, ale LLM odpovědi nebudou dostupné.
+Ollama je v tomto režimu externí/volitelná (`DOCKER_OLLAMA_URL` defaultuje na `http://host.docker.internal:11434`).
 
-### `core + ollama`
+### S lokální Ollamou (`./scripts/dev-up.sh --with-ollama`)
 
-Stejné jako `core`, navíc kontejner:
-- `ollama`
+Stejné jako default, navíc:
+- `ollama` (compose profil `ollama`)
 
-## 3) One-command local run
+V tomto režimu `DOCKER_OLLAMA_URL` defaultuje na `http://ollama:11434`.
 
-Zkopíruj env:
+## 4) One-command lokální start
 
 ```bash
 cp .env.example .env
-```
-
-Spuštění `core`:
-
-```bash
 ./scripts/dev-up.sh
-```
-
-Spuštění `core + ollama`:
-
-```bash
+# nebo:
 ./scripts/dev-up.sh --with-ollama
 ```
 
-Script dělá:
-1. start infrastruktury,
-2. explicitní `alembic upgrade head`,
-3. seed default userů (`python -m scripts.init_db`),
-4. start API + frontend reverse proxy.
-
-Open:
-- `http://127.0.0.1:8080/` (frontend)
-- `http://127.0.0.1:8080/query`
-- `http://127.0.0.1:8000/` (API direct)
-- `http://127.0.0.1:8000/docs`
+Po startu:
+- `http://127.0.0.1:8080/` (Ingest UI)
+- `http://127.0.0.1:8080/query` (Query UI)
+- `http://127.0.0.1:8000/docs` (OpenAPI)
 - `http://127.0.0.1:8000/health`
+- `http://127.0.0.1:8000/health/ready`
 
-## 4) DB migrace
+## 5) Databáze a seed
 
-Schéma je řízené přes Alembic:
+- Schéma je řízené výhradně migracemi v `alembic/versions`.
+- `scripts/init_db.py` pouze seeduje default uživatele a kontroluje, že migrace už proběhly.
+
+Ruční migrace:
 
 ```bash
 alembic upgrade head
 ```
 
-`scripts/init_db.py` už jen seeduje default uživatele. Schéma se nevytváří přes `create_all`.
+## 6) Health a readiness
 
-## 5) Health a request ID
+- `GET /health` i `GET /health/ready` aktuálně používají stejnou kontrolu required komponent:
+  - required: `postgres`, `qdrant`
+  - optional: `ollama`
+- návratové kódy:
+  - `200`, když required komponenty běží
+  - `503`, když některá required komponenta neběží
 
-- `GET /health` kontroluje `postgres` + `qdrant` jako required komponenty.
-- `GET /health/ready` vrací stejný readiness výsledek pro required komponenty.
-- `ollama` je reportovaná jako optional komponenta.
-- Endpoint vrací:
-  - `200`, když required komponenty běží,
-  - `503`, když některá required komponenta neběží.
-- API podporuje `X-Request-ID`:
-  - pokud přijde v requestu, vrací se stejná hodnota v response,
-  - pokud chybí, API ji vygeneruje,
-  - request ID se propisuje do auditu.
+## 7) Auth, role, endpointy
 
-## 6) Default uživatelé
+### Default uživatelé
 
 | Username | Password | Role |
 |---|---|---|
-| `admin` | `admin123` | Admin |
-| `curator` | `curator123` | Curator |
-| `analyst` | `analyst123` | Analyst |
-| `user` | `user123` | User |
+| `admin` | `admin123` | `Admin` |
+| `curator` | `curator123` | `Curator` |
+| `analyst` | `analyst123` | `Analyst` |
+| `user` | `user123` | `User` |
 
-## 7) Důležité endpointy a role
+### Auth endpointy
 
-### Auth
+- `POST /api/auth/login` (OAuth2 form data) -> `access_token` + `refresh_token`
+- `POST /api/auth/refresh` -> rotace refresh tokenu + nový access token
+- `POST /api/auth/logout` -> revoke refresh tokenu
 
-- `POST /api/auth/login` -> vrací `access_token` + `refresh_token`
-- `POST /api/auth/refresh` -> rotate refresh token + nový access token
-- `POST /api/auth/logout` -> revoke refresh token
+### Ingest/Query endpointy
 
-### Ingest / Query
+- `GET /api/ingest/sources` -> `Admin|Curator|Analyst|User`
+- `POST /api/ingest/sources` -> `Admin|Curator`
+- `POST /api/ingest/run` -> `Admin|Curator`
+- `POST /api/query/` -> `Admin|Curator|Analyst|User`
 
-- `GET /api/ingest/sources` -> všechny role
-- `POST /api/ingest/sources` -> `Admin`, `Curator`
-- `POST /api/ingest/run` -> `Admin`, `Curator`
-- `POST /api/query/` -> všechny role
+Validace:
+- ingest URL musí zůstat v scope `source.base_url` (origin + path prefix)
+- `permission_type` je povinné
+- když `permission_type != public`, je povinné `permission_ref`
 
-`POST /api/ingest/run` validuje, že URL zůstává v scope `source.base_url`.
-`POST /api/ingest/sources` validuje minimum pro permission metadata:
-- `permission_type` je povinný,
-- pokud `permission_type != public`, je povinný i `permission_ref`.
+## 8) Klíčová konfigurace
 
-## 8) Důležitá konfigurace
-
-| Variable | Default | Meaning |
+| Variable | Default | Význam |
 |---|---|---|
-| `APP_SECRET_KEY` | `change-me` | JWT secret, změň |
-| `DATABASE_URL` | `postgresql+psycopg://app:app@localhost:5432/multimodal_mvp` | DB URL pro non-docker run |
-| `QDRANT_URL` | `http://localhost:6333` | Qdrant URL pro non-docker run |
-| `OLLAMA_URL` | `http://localhost:11434` | Ollama URL |
-| `DOCKER_OLLAMA_URL` | prázdné | docker override pro API/migrate (`http://ollama:11434` nebo `http://host.docker.internal:11434`) |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `480` | Access token TTL |
-| `REFRESH_TOKEN_EXPIRE_MINUTES` | `43200` | Refresh token TTL |
+| `APP_SECRET_KEY` | `change-me-in-production` | JWT secret (vlastní hodnota je povinná mimo dev) |
+| `DATABASE_URL` | `postgresql+psycopg://app:app@localhost:5432/multimodal_mvp` | DB URL pro non-docker běh |
+| `QDRANT_URL` | `http://localhost:6333` | Qdrant URL pro non-docker běh |
+| `OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint |
+| `DOCKER_OLLAMA_URL` | prázdné | docker override (`http://ollama:11434` nebo `http://host.docker.internal:11434`) |
 | `OLLAMA_MODEL` | `llama3.2:3b` | textový model |
 | `OLLAMA_VISION_MODEL` | prázdné | multimodální model |
-| `VISION_ANSWER_ENABLED` | `false` | při `rag` pošle screenshoty i do LLM |
+| `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | embedding model |
+| `RETRIEVAL_MIN_SCORE` | `0.25` | minimální score pro kandidáty |
+| `QUALITY_THRESHOLD_CHARS` | `300` | hranice pro fallback na render/screenshot |
+| `VISION_ANSWER_ENABLED` | `false` | při `rag` připojí relevantní screenshoty do LLM callu |
 | `VISION_EXTRACT_ON_INGEST` | `false` | structured vision extrakce při ingestu |
-| `RETRIEVAL_MIN_SCORE` | `0.25` | minimální relevance hitu |
-| `QUALITY_THRESHOLD_CHARS` | `300` | hranice pro render fallback |
+| `FETCH_VERIFY_SSL` | `true` | SSL verifikace při fetchi |
 
 ## 9) Testy
 
-Smoke testy pokrývají:
-- ingest fallbacky (HTML/RENDERED_DOM/SCREENSHOT),
-- CAPTCHA incident flow,
-- RAG/no-RAG query flow,
-- retrieval threshold + rerank,
-- health endpoint chování,
-- request ID echo,
-- refresh token rotaci a logout revoke.
+`tests/test_smoke.py` pokrývá hlavní tok:
+- ingest fallbacky (`HTML`, `RENDERED_DOM`, `SCREENSHOT`) + OCR/vision větve
+- CAPTCHA a ingest incident flow
+- RAG/no-RAG query
+- retrieval threshold + rerank/dedup
+- health + readiness endpointy
+- request ID echo
+- login/refresh/logout token flow
 
 Spuštění:
 
@@ -160,13 +152,15 @@ pytest
 
 ## 10) Aktuální limity MVP
 
-- ingest je synchronní
-- retrieval je čistě vektorový (Qdrant)
-- bez běžící Ollamy nejsou LLM odpovědi dostupné
+- ingest je synchronní (bez worker queue)
+- retrieval je Qdrant vector search + lehký heuristický reranking (zatím bez model-based rerankeru)
+- bez dostupné Ollamy endpoint vrací fallback text místo modelové odpovědi
 - permission metadata zatím nejsou promítnuté do retrieval filtru
-- bez workers/redis není async job orchestrace
+- bez `redis`/worker vrstvy není async orchestrace ingestu
+- frontend je zatím minimální (2 stránky), rozsáhlejší UX je v TODO (`P1.7`)
 
-## 11) Výběr modelu
+## 11) Související dokumenty
 
-Doporučení k rodině Qwen3.5 je v souboru:
-- `VYBER_MODELU_QWEN35.md`
+- architektura: `Architektura_systemu_2026-04-02.md`
+- backlog/provozní stav: `TODO.md`
+- doporučení k modelům: `VYBER_MODELU_QWEN35.md`
