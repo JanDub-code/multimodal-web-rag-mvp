@@ -17,7 +17,7 @@ from app.db.models import Chunk, Document, Embedding, Evidence, IngestJob, Sourc
 from app.services.chunking import chunk_sections
 from app.services.extract import persist_canonical_document_for_key, to_canonical_document
 from app.services.incidents import detect_captcha_heuristic, log_captcha_incident, log_ingest_incident
-from app.services.multimodal import extract_structured_document_from_image, ollama_generate
+from app.services.multimodal import extract_structured_document_from_image, llm_chat_generate
 from app.services.retrieval import delete_vectors_by_chunk_ids, upsert_chunk_vectors
 from app.services.url_safety import SafeSession, UnsafeUrlError, validate_public_url
 
@@ -109,7 +109,7 @@ def _run_playwright_in_fresh_loop(url: str, screenshot_path: str) -> tuple[str, 
 
 def _extract_screenshot_text(screenshot_path: str) -> str:
     def _vision_ocr_fallback() -> str:
-        model = settings.ollama_vision_model or settings.ollama_model
+        model = settings.llm_vision_model or settings.llm_model
         if not model:
             return ""
         prompt = (
@@ -117,7 +117,7 @@ def _extract_screenshot_text(screenshot_path: str) -> str:
             "Return plain text only in natural reading order. "
             "Do not summarize and do not add commentary."
         )
-        text = ollama_generate(
+        text = llm_chat_generate(
             prompt=prompt,
             model=model,
             image_paths=[screenshot_path],
@@ -498,3 +498,4 @@ def run_ingest(db: Session, source_id: int, url: str) -> dict:
         except Exception:
             logger.exception("Failed to update job status to 'failed'")
         raise
+
