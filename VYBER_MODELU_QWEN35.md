@@ -31,6 +31,20 @@ V praxi:
 
 I když je během inference aktivní menší část parametrů než u dense modelu stejné velikosti, provozně je to stále velký model se značnými nároky na paměť a infrastrukturu.
 
+## Hodnocení Tiny modelů (≤4B parametrů)
+
+Pro lokální běh MVP na běžném hardwaru jsme zhodnotili dvě nejlepší varianty v kategorii malých modelů. Primárním základem, který chceme pro toto MVP rovnou otestovat, bude Qwen3.5 2B.
+
+1. **Qwen3.5 2B (Reasoning)**
+   - **Velikost:** 2.27 miliardy aktivních parametrů
+   - **Context Window:** 262k tokenů
+   - **Hodnocení:** Náš výchozí cíl k vyzkoušení. Přestože je výrazně menší, dosahuje maximálních výsledků v "tiny" kategorii, je extrémně lehký na RAM/VRAM a zachovává bezkonkurenční velikost kontextu pro naši RAG pipeline.
+
+2. **Nanbeige4.1-3B**
+   - **Velikost:** 3.93 miliardy parametrů
+   - **Context Window:** 256k tokenů
+   - **Hodnocení:** Silný vyzyvatel se stejným hodnocením inteligence (16 bodů). Avšak s téměř dvojnásobkem parametrů proti Qwen3.5 2B vyžaduje silnější hardware, a proto figuruje spíše jako záloha/porovnávací model.
+
 ## Dopad na tuto aplikaci
 
 V kontextu tohoto MVP:
