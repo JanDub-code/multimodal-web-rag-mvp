@@ -86,6 +86,32 @@ Definition of Done:
 - query endpoint zůstává stabilní i při výpadku rerankeru,
 - rozhodnutí o default rerank strategii je podložené metrikami.
 
+## P1.9 - Evaluace relevance a refresh dat (bez permissioningu)
+
+### Stream A - Eval dataset a metriky
+- [ ] Připravit malý eval set reálných dotazů (CZ/EN) s očekávanými relevantními dokumenty/chunky.
+- [ ] Přidat jednoduchý eval runner script pro měření `Recall@k`, `MRR@k` a latence (`p50`, `p95`) nad aktuální retrieval pipeline.
+- [ ] Uložit výstup evaluace do verzovaného reportu (`docs/` nebo `reports/`) a zapsat stručné shrnutí do README.
+- [ ] Definovat minimální quality gate pro retrieval (např. spodní hranice `Recall@k`) a explicitně ji dokumentovat.
+
+### Stream B - Refresh dat
+- [ ] Zavést explicitní refresh workflow pro již ingestované URL (re-ingest existujícího dokumentu bez ručního mazání).
+- [ ] Přidat metadata pro refresh rozhodování (`last_successful_ingest_ts`, `refresh_interval` nebo ekvivalent) na úrovni source/url.
+- [ ] Přidat scheduler/periodický job pro refresh stale dokumentů (nejdřív jednoduchý cron-like režim).
+- [ ] Přidat idempotentní chování refresh jobu (bez duplicitních dokumentů/chunků při opakovaném běhu).
+- [ ] Logovat a auditovat refresh běhy (počet URL, úspěchy/chyby, incident typy, request/operation identifikátor).
+
+### Stream C - Testy a provoz
+- [ ] Doplnit testy pro eval runner (stabilita výpočtu metrik a formát reportu).
+- [ ] Doplnit testy pro refresh workflow (re-ingest stejné URL, fallbacky, incident handling).
+- [ ] Doplnit krátký runbook: jak spustit eval, jak spustit ruční refresh a jak číst výstupy.
+
+Definition of Done:
+- existuje reprodukovatelná eval sada + skript + report metrik,
+- je vidět trend kvality retrievalu mezi změnami,
+- refresh běží opakovatelně bez duplicit a bez ručního zásahu,
+- provozní logy/audit umožní dohledat průběh refresh a chyby.
+
 ## P2 - růstové věci
 
 - [ ] Consent enforcement model (povinné blokace ingestu bez souhlasu).
@@ -106,7 +132,8 @@ Definition of Done:
 3. Údržba refresh tokenů + API changelog (P1).
 4. UX + embedding + compliance guard (P1.7).
 5. Reranking rozhodnutí podložené benchmarkem (P1.8).
-6. Teprve potom rozhodnutí o růstových tématech (P2).
+6. Evaluace relevance + refresh dat (P1.9).
+7. Teprve potom rozhodnutí o růstových tématech (P2).
 
 ---
 
