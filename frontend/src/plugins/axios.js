@@ -32,7 +32,9 @@ api.interceptors.response.use(
   }
 )
 
-// Enable mock interceptor (backend not ready)
-useMockInterceptor(api)
+// Apply mock interceptor for local testing ONLY if VITE_USE_MOCK is explicitly true
+if (import.meta.env.VITE_USE_MOCK === 'true') {
+  useMockInterceptor(api)
+}
 
 export default api

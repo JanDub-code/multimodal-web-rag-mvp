@@ -2,7 +2,7 @@ import api from '@/plugins/axios'
 
 export const sourceService = {
   async getSources() {
-    const response = await api.get('/sources')
+    const response = await api.get('/ingest/sources')
     return response.data
   },
 
@@ -12,7 +12,7 @@ export const sourceService = {
   },
 
   async deleteSource(id) {
-    const response = await api.delete(`/sources/${id}`)
+    const response = await api.delete(`/ingest/sources/${id}`)
     return response.data
   },
 
