@@ -1,209 +1,108 @@
 <template>
-  <div class="audit-page">
-    <h1 class="page-title">Audit Log</h1>
+  <v-container fluid class="pa-6">
+    <div class="d-flex align-center mb-6">
+      <h1 class="text-h4 font-weight-bold text-primary">Audit Log</h1>
+    </div>
 
     <!-- Filters -->
-   <v-card class="pa-5 mb-6">
-  <v-row align="center" dense>
-    <v-col cols="12" sm="6" md="2">
-      <v-text-field
-        v-model="filters.dateFrom"
-        label="Datum od"
-        type="date"
-        density="compact"
-        hide-details
-      />
-    </v-col>
+    <v-card class="mb-6 elevation-1 rounded-lg border">
+      <v-card-text class="d-flex align-center flex-wrap gap-4 py-3">
+        <div style="width: 200px" class="mr-4">
+          <div class="text-caption font-weight-medium mb-1">Datum od</div>
+          <v-text-field type="date" v-model="filters.dateFrom" variant="outlined" density="compact" hide-details></v-text-field>
+        </div>
+        
+        <div style="width: 200px" class="mr-4">
+          <div class="text-caption font-weight-medium mb-1">Datum do</div>
+          <v-text-field type="date" v-model="filters.dateTo" variant="outlined" density="compact" hide-details></v-text-field>
+        </div>
+        
+        <div style="width: 200px" class="mr-4">
+          <div class="text-caption font-weight-medium mb-1">Oprávnění</div>
+          <v-select :items="['Všichni', 'ADMIN', 'ANALYST', 'USER', 'SYSTEM']" v-model="filters.role" variant="outlined" density="compact" hide-details></v-select>
+        </div>
+        
+        <div style="width: 200px" class="mr-4">
+          <div class="text-caption font-weight-medium mb-1">Typ události</div>
+          <v-select :items="['Vše', 'THRESHOLD CHANGE', 'TEST RUN', 'LOGIN', 'CAPTCHA ERROR']" v-model="filters.type" variant="outlined" density="compact" hide-details></v-select>
+        </div>
 
-    <v-col cols="12" sm="6" md="2">
-      <v-text-field
-        v-model="filters.dateTo"
-        label="Datum do"
-        type="date"
-        density="compact"
-        hide-details
-      />
-    </v-col>
+        <div class="mt-5">
+          <v-btn color="primary" prepend-icon="mdi-filter" @click="filterData">Filter</v-btn>
+        </div>
+      </v-card-text>
+    </v-card>
 
-    <v-col cols="12" sm="6" md="2">
-      <v-select
-        v-model="filters.role"
-        label="Oprávnění"
-        :items="roleOptions"
-        density="compact"
-        clearable
-        hide-details
-      />
-    </v-col>
-
-    <v-col cols="12" sm="6" md="2">
-      <v-select
-        v-model="filters.eventType"
-        label="Typ události"
-        :items="eventTypeOptions"
-        density="compact"
-        clearable
-        hide-details
-      />
-    </v-col>
-
-    <v-col cols="12" sm="6" md="2" class="d-flex align-center">
-      <v-btn
-        color="primary"
-        prepend-icon="mdi-filter-outline"
-        @click="applyFilters"
-        class="w-100"
-        height="40"
-      >
-        Filter
-      </v-btn>
-    </v-col>
-  </v-row>
-</v-card>
-
-    <!-- Audit Table -->
-    <v-card>
-      <v-table class="audit-table">
+    <!-- Table -->
+    <v-card class="elevation-1 rounded-lg border">
+      <v-table>
         <thead>
           <tr>
-            <th>ČAS</th>
-            <th>AKTÉR</th>
-            <th>OPRÁVNĚNÍ</th>
-            <th>TYP UDÁLOSTI</th>
-            <th>DETAIL</th>
+            <th class="text-left font-weight-bold text-subtitle-2 text-grey-darken-1 align-middle py-3">ČAS</th>
+            <th class="text-left font-weight-bold text-subtitle-2 text-grey-darken-1 align-middle py-3">AKTÉR</th>
+            <th class="text-left font-weight-bold text-subtitle-2 text-grey-darken-1 align-middle py-3">OPRÁVNĚNÍ</th>
+            <th class="text-left font-weight-bold text-subtitle-2 text-grey-darken-1 align-middle py-3">TYP UDÁLOSTI</th>
+            <th class="text-left font-weight-bold text-subtitle-2 text-grey-darken-1 align-middle py-3">DETAIL</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="entry in filteredLogs" :key="entry.id">
-            <td class="audit-table__time">{{ formatTime(entry.ts) }}</td>
-            <td class="audit-table__actor">{{ entry.actor }}</td>
-            <td>
-              <span :class="['role-chip', `role-chip--${entry.role.toLowerCase()}`]">
-                {{ entry.role.toUpperCase() }}
-              </span>
+          <tr v-for="item in currentItems" :key="item.id">
+            <td class="py-3">{{ item.time }}</td>
+            <td class="py-3">{{ item.actor }}</td>
+            <td class="py-3">
+              <v-chip :color="getRoleColor(item.role)" size="small" class="font-weight-bold" label>{{ item.role }}</v-chip>
             </td>
-            <td>
-              <span :class="['event-chip', `event-chip--${entry.event_category}`]">
-                {{ entry.event_type }}
-              </span>
+            <td class="py-3">
+              <v-chip :color="getTypeColor(item.type)" size="small" class="font-weight-medium" variant="tonal">{{ item.type }}</v-chip>
             </td>
-            <td class="audit-table__detail">{{ entry.detail }}</td>
+            <td class="py-3">{{ item.detail }}</td>
           </tr>
         </tbody>
       </v-table>
-
-      <div v-if="filteredLogs.length === 0" class="text-center pa-8 text-muted">
-        Žádné záznamy odpovídající filtru.
-      </div>
     </v-card>
-  </div>
+  </v-container>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { auditService } from '@/services/auditService'
-
-const logs = ref([])
-const loading = ref(false)
+import { ref, computed } from 'vue'
 
 const filters = ref({
   dateFrom: '2026-03-01',
   dateTo: '2026-03-11',
-  role: null,
-  eventType: null,
+  role: 'Všichni',
+  type: 'Vše'
 })
 
-const roleOptions = ['Všichni', 'Admin', 'Curator', 'Analyst', 'User', 'System']
-const eventTypeOptions = [
-  'Vše',
-  'THRESHOLD CHANGE',
-  'TEST RUN',
-  'LOGIN',
-  'CAPTCHA ERROR',
-  'INGEST',
-  'QUERY',
-  'COMPLIANCE CONFIRM',
-]
+const auditData = ref([
+  { id: 1, time: '10:45:12', actor: 'jan.novak', role: 'ADMIN', type: 'THRESHOLD CHANGE', detail: 'změna z 75% -> 80%' },
+  { id: 2, time: '10:45:12', actor: 'eva.curator', role: 'ANALYST', type: 'TEST RUN', detail: 'Spouštěn test ob-8f92' },
+  { id: 3, time: '10:45:12', actor: 'petr.curator', role: 'USER', type: 'LOGIN', detail: 'Login in...' },
+  { id: 4, time: '10:45:12', actor: 'petr.curator', role: 'SYSTEM', type: 'CAPTCHA ERROR', detail: 'URL blocked' }
+])
 
-const filteredLogs = computed(() => {
-  let result = [...logs.value]
+const currentItems = computed(() => auditData.value)
 
-  if (filters.value.role && filters.value.role !== 'Všichni') {
-    result = result.filter((l) => l.role === filters.value.role)
-  }
-
-  if (filters.value.eventType && filters.value.eventType !== 'Vše') {
-    result = result.filter((l) => l.event_type === filters.value.eventType)
-  }
-
-  return result
-})
-
-onMounted(async () => {
-  await loadLogs()
-})
-
-async function loadLogs() {
-  loading.value = true
-  try {
-    const data = await auditService.getAuditLogs(filters.value)
-    logs.value = data || []
-  } catch (err) {
-    console.error('Failed to load audit logs:', err)
-  } finally {
-    loading.value = false
+const getRoleColor = (role) => {
+  switch (role) {
+    case 'ADMIN': return 'error'
+    case 'ANALYST': return 'accent'
+    case 'USER': return 'info'
+    case 'SYSTEM': return 'red-darken-4'
+    default: return 'grey'
   }
 }
 
-function applyFilters() {
-  loadLogs()
+const getTypeColor = (type) => {
+  switch (type) {
+    case 'THRESHOLD CHANGE': return 'warning'
+    case 'TEST RUN': return 'accent'
+    case 'LOGIN': return 'info'
+    case 'CAPTCHA ERROR': return 'error'
+    default: return 'grey'
+  }
 }
 
-function formatTime(ts) {
-  const d = new Date(ts)
-  return d.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+const filterData = () => {
+  // Mock filter action
 }
 </script>
-
-<style lang="scss" scoped>
-.audit-page {
-  // ...
-}
-
-.audit-table {
-  th {
-    font-size: $font-size-xs !important;
-    font-weight: $font-weight-semibold !important;
-    color: $text-muted !important;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 2px solid $border-color !important;
-    padding: $space-base $space-base !important;
-  }
-
-  td {
-    padding: $space-md $space-base !important;
-    font-size: $font-size-base;
-    border-bottom: 1px solid $border-light !important;
-  }
-
-  &__time {
-    color: $text-secondary;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-
-  &__actor {
-    font-weight: $font-weight-medium;
-    color: $text-primary;
-  }
-
-  &__detail {
-    color: $text-secondary;
-    max-width: 300px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-</style>

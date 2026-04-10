@@ -1,229 +1,224 @@
 <template>
-  <div class="sources-page">
-    <div class="sources-page__header">
-      <h1 class="page-title mb-0">Správa zdrojů</h1>
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="showAddDialog = true">
-        Nový zdroj
-      </v-btn>
+  <v-container fluid class="pa-6">
+    <div class="d-flex align-center justify-space-between mb-6">
+      <h1 class="text-h4 font-weight-bold text-primary">Správa zdrojů</h1>
+      <v-btn color="primary" prepend-icon="mdi-plus" @click="dialog = true">Nový zdroj</v-btn>
     </div>
 
     <!-- Stats Cards -->
-    <v-row class="mb-6">
-      <v-col cols="6" md="3">
-        <div class="stat-card">
-          <div class="stat-card__value">{{ sourceData.stats?.totalSources || 0 }}</div>
-          <div class="stat-card__label">Registrované zdroje</div>
-        </div>
+    <v-row class="mb-4">
+      <v-col cols="12" md="3">
+        <v-card class="elevation-1 border rounded-lg h-100 pa-4">
+          <div class="text-h4 font-weight-bold">{{ sources.length }}</div>
+          <div class="text-subtitle-2 text-grey-darken-1">Registrované zdroje</div>
+        </v-card>
       </v-col>
-      <v-col cols="6" md="3">
-        <div class="stat-card">
-          <div class="stat-card__value stat-card__value--accent">{{ sourceData.incidents?.length || 0 }}</div>
-          <div class="stat-card__label">Otevřené incidenty</div>
-        </div>
+      <v-col cols="12" md="3">
+        <v-card class="elevation-1 border rounded-lg h-100 pa-4">
+          <div class="text-h4 font-weight-bold text-error">{{ incidents.length }}</div>
+          <div class="text-subtitle-2 text-grey-darken-1">Otevřené incidenty</div>
+        </v-card>
       </v-col>
-      <v-col cols="6" md="3">
-        <div class="stat-card">
-          <div class="stat-card__value">{{ formatDate(sourceData.stats?.lastCrawl) }}</div>
-          <div class="stat-card__label">Poslední sběr</div>
-        </div>
+      <v-col cols="12" md="3">
+        <v-card class="elevation-1 border rounded-lg h-100 pa-4">
+          <div class="text-h5 font-weight-bold mt-1">{{ lastCrawlDate }}</div>
+          <div class="text-subtitle-2 text-grey-darken-1 mt-1">Poslední sběr</div>
+        </v-card>
       </v-col>
-      <v-col cols="6" md="3">
-        <div class="stat-card">
-          <div class="stat-card__value">{{ formatDate(sourceData.stats?.nextCrawl) }}</div>
-          <div class="stat-card__label">Příští sběr</div>
-        </div>
+      <v-col cols="12" md="3">
+        <v-card class="elevation-1 border rounded-lg h-100 pa-4">
+          <div class="text-h5 font-weight-bold mt-1">{{ nextCrawlDate }}</div>
+          <div class="text-subtitle-2 text-grey-darken-1 mt-1">PříštÍ sběr</div>
+        </v-card>
       </v-col>
     </v-row>
 
     <!-- Search -->
     <v-text-field
       v-model="search"
-      placeholder="Hledat zdroje..."
       prepend-inner-icon="mdi-magnify"
+      placeholder="Hledat zdroje..."
       variant="outlined"
-      density="compact"
-      class="mb-4"
-      style="max-width: 500px"
+      density="comfortable"
+      class="mb-6 bg-white rounded-lg"
       hide-details
-    />
+    ></v-text-field>
 
     <!-- Sources Table -->
-    <v-card class="mb-6">
-      <div class="table-responsive">
-        <v-table class="sources-table">
-          <thead>
-          <tr>
-            <th>URL</th>
-            <th>STRATEGIE</th>
-            <th>STAV</th>
-            <th>FREKVENCE</th>
-            <th>POSLEDNÍ SBĚR</th>
-            <th>AKCE</th>
+    <v-card class="elevation-1 rounded-lg border mb-8">
+      <v-table>
+        <thead>
+          <tr class="bg-grey-lighten-4">
+            <th class="text-left font-weight-bold text-subtitle-2 text-grey-darken-1 py-3">URL</th>
+            <th class="text-left font-weight-bold text-subtitle-2 text-grey-darken-1 py-3">STRATEGIE</th>
+            <th class="text-left font-weight-bold text-subtitle-2 text-grey-darken-1 py-3">STAV</th>
+            <th class="text-left font-weight-bold text-subtitle-2 text-grey-darken-1 py-3">FREKVENCE</th>
+            <th class="text-left font-weight-bold text-subtitle-2 text-grey-darken-1 py-3">POSLEDNÍ SBĚR</th>
+            <th class="text-left font-weight-bold text-subtitle-2 text-grey-darken-1 py-3">AKCE</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="source in filteredSources" :key="source.id">
-            <td class="sources-table__url">{{ source.url }}</td>
-            <td>
-              <span :class="['strategy-chip', `strategy-chip--${source.strategy.toLowerCase()}`]">
+          <tr v-for="source in filteredSources" :key="source.id" class="border-b">
+            <td class="py-3 font-weight-medium">{{ source.url }}</td>
+            <td class="py-3">
+              <v-chip :color="source.strategy === 'HTTP' ? 'warning' : 'accent'" size="small" variant="tonal" class="font-weight-bold">
                 {{ source.strategy }}
-              </span>
+              </v-chip>
             </td>
-            <td>
-              <span :class="['status-chip', `status-chip--${source.status.toLowerCase()}`]">
+            <td class="py-3">
+              <v-chip :color="source.status === 'OK' ? 'success' : 'error'" size="small" class="font-weight-bold" :variant="source.status === 'OK' ? 'tonal' : 'flat'">
                 {{ source.status }}
-              </span>
+              </v-chip>
             </td>
-            <td>{{ source.frequency }}</td>
-            <td>{{ formatDate(source.last_crawl) }}</td>
-            <td>
-              <v-btn icon="mdi-pencil-outline" variant="text" size="small" color="primary" />
-              <v-btn icon="mdi-delete-outline" variant="text" size="small" color="error" />
+            <td class="py-3 text-grey-darken-2">{{ source.frequency }}</td>
+            <td class="py-3 text-grey-darken-2">{{ source.lastCrawl }}</td>
+            <td class="py-3">
+              <v-btn icon="mdi-pencil" variant="tonal" color="primary" size="x-small" class="mr-2" @click="editSource(source)"></v-btn>
+              <v-btn icon="mdi-delete" variant="tonal" color="error" size="x-small" @click="deleteSource(source.id)"></v-btn>
             </td>
           </tr>
         </tbody>
-        </v-table>
-      </div>
+      </v-table>
     </v-card>
 
-    <!-- Incident Queue -->
-    <v-card class="pa-5">
-      <h3 class="section-title">Fronta incidentů</h3>
-      <div v-if="sourceData.incidents?.length === 0" class="text-muted text-center pa-4">
-        Žádné otevřené incidenty.
-      </div>
-      <div
-        v-for="incident in sourceData.incidents"
-        :key="incident.id"
-        class="incident-row"
-      >
-        <div class="incident-row__left">
-          <span class="status-chip status-chip--captcha">{{ incident.type }}</span>
-          <span class="incident-row__url">{{ incident.url }}</span>
-        </div>
-        <div class="incident-row__actions d-flex align-stretch ga-2">
-          <v-btn color="error" height="32" class="text-none" variant="flat">Detail</v-btn>
-          <v-btn color="success" icon="mdi-check" height="32" width="32" variant="flat" />
-        </div>
-      </div>
+    <!-- Incidents -->
+    <v-card class="elevation-1 rounded-lg border">
+      <v-card-title class="font-weight-bold px-6 py-4 bg-grey-lighten-4">
+        Fronta incidentů
+      </v-card-title>
+      <v-divider></v-divider>
+      <v-list lines="one" class="pa-0">
+        <v-list-item v-for="incident in incidents" :key="incident.id" class="border-b px-6 py-3">
+          <div class="d-flex align-center w-100">
+            <v-chip color="error" size="small" variant="flat" class="mr-4 font-weight-bold px-2">{{ incident.type }}</v-chip>
+            <div class="text-body-2 font-weight-medium">{{ incident.url }}</div>
+            <v-spacer></v-spacer>
+            <v-btn color="primary" variant="flat" size="small" class="mr-2 px-4 rounded-lg">Detail</v-btn>
+            <v-btn color="success" icon="mdi-check" variant="flat" size="small" class="rounded-lg"></v-btn>
+          </div>
+        </v-list-item>
+      </v-list>
     </v-card>
 
-    <!-- Add Source Dialog -->
-    <AddSourceDialog v-model="showAddDialog" @created="loadSources" />
-  </div>
+    <!-- Add Source Modal -->
+    <v-dialog v-model="dialog" max-width="500">
+      <v-card class="rounded-xl">
+        <v-card-title class="pa-6 pb-2 text-h6 font-weight-bold">Přidat nový zdroj</v-card-title>
+        <v-card-text class="px-6 py-2">
+          <div class="text-subtitle-2 font-weight-bold mb-1">Název zdroje</div>
+          <v-text-field v-model="newSource.name" placeholder="Např. EUR-Lex" variant="outlined" density="comfortable" class="mb-4"></v-text-field>
+          
+          <div class="text-subtitle-2 font-weight-bold mb-1">URL</div>
+          <v-text-field v-model="newSource.url" placeholder="https://..." variant="outlined" density="comfortable" class="mb-4"></v-text-field>
+          
+          <div class="text-subtitle-2 font-weight-bold mb-1">Frekvence</div>
+          <v-text-field v-model="newSource.frequency" placeholder="Denně / Týdně / Měsíčně" variant="outlined" density="comfortable" class="mb-4"></v-text-field>
+          
+          <div class="text-subtitle-2 font-weight-bold mb-1">Strategie</div>
+          <v-select v-model="newSource.strategy" :items="['HTTP', 'SCREENSHOT', 'RENDERED_DOM']" variant="outlined" density="comfortable"></v-select>
+        </v-card-text>
+        <v-card-actions class="pa-6 pt-2">
+          <v-spacer></v-spacer>
+          <v-btn variant="outlined" class="rounded-lg px-4" @click="dialog = false">Zrušit</v-btn>
+          <v-btn color="primary" variant="flat" class="rounded-lg px-4" @click="addSource" :loading="saving">Přidat zdroj</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+  </v-container>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { sourceService } from '@/services/sourceService'
-import AddSourceDialog from '@/components/sources/AddSourceDialog.vue'
+import { ref, onMounted, computed } from 'vue'
+import axios from 'axios'
 
-const showAddDialog = ref(false)
 const search = ref('')
+const dialog = ref(false)
+const saving = ref(false)
 
-const sourceData = ref({
-  sources: [],
-  incidents: [],
-  stats: {},
-})
+const sources = ref([
+  { id: 1, url: 'google.com', strategy: 'HTTP', status: 'CAPTCHA', frequency: 'Denně', lastCrawl: '2026-03-08' },
+  { id: 2, url: 'uis.mendelu.cz', strategy: 'SCREENSHOT', status: 'OK', frequency: 'Týdně', lastCrawl: '2026-03-08' },
+])
 
 const filteredSources = computed(() => {
-  if (!search.value) return sourceData.value.sources || []
-  const q = search.value.toLowerCase()
-  return (sourceData.value.sources || []).filter(
-    (s) => s.url.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)
-  )
+  if (!search.value) return sources.value
+  const low = search.value.toLowerCase()
+  return sources.value.filter(s => s.url.toLowerCase().includes(low) || s.strategy.toLowerCase().includes(low))
 })
 
-onMounted(async () => {
-  await loadSources()
+const lastCrawlDate = computed(() => {
+  if (sources.value.length === 0) return '-'
+  return sources.value[0].lastCrawl || '2026-03-08'
+})
+const nextCrawlDate = computed(() => '2026-03-25')
+
+const deleteSource = (id) => {
+  sources.value = sources.value.filter(s => s.id !== id)
+}
+
+const editSource = (source) => {
+  alert('Editační okno pro úpravu zdroje: ' + source.url)
+}
+
+const incidents = ref([
+  { id: 1, type: 'CAPTCHA', url: 'protected-site.com/page-42' },
+  { id: 2, type: 'CAPTCHA', url: 'protected-site.com/page-55' },
+])
+
+const newSource = ref({
+  name: '',
+  url: '',
+  frequency: 'Denně',
+  strategy: 'HTTP'
 })
 
-async function loadSources() {
+const fetchSources = async () => {
   try {
-    const data = await sourceService.getSources()
-    sourceData.value = data
+    const res = await axios.get('/api/ingest/sources')
+    if (res.data && res.data.length > 0) {
+      // Map API data to UI format
+      const apiSources = res.data.map(s => ({
+        id: s.id,
+        url: s.base_url || s.name,
+        strategy: s.strategy || 'HTTP',
+        status: 'OK',
+        frequency: 'Denně',
+        lastCrawl: 'N/A'
+      }))
+      // Merge for demo purposes
+      sources.value = [...sources.value, ...apiSources]
+    }
   } catch (err) {
-    console.error('Failed to load sources:', err)
+    console.error('Failed to fetch sources:', err)
   }
 }
 
-function formatDate(dateString) {
-  if (!dateString || dateString === '–') return '–'
-  const parts = dateString.split('-')
-  if (parts.length === 3) {
-    return `${parts[2]}.${parts[1]}.${parts[0]}`
+onMounted(() => {
+  fetchSources()
+})
+
+const addSource = async () => {
+  saving.value = true
+  try {
+    const res = await axios.post('/api/ingest/sources', {
+      name: newSource.value.name,
+      base_url: newSource.value.url
+    })
+    sources.value.push({
+      id: res.data.source_id || Date.now(),
+      url: newSource.value.url || newSource.value.name,
+      strategy: newSource.value.strategy,
+      status: 'OK',
+      frequency: newSource.value.frequency,
+      lastCrawl: 'Never'
+    })
+    dialog.value = false
+    newSource.value = { name: '', url: '', frequency: 'Denně', strategy: 'HTTP' }
+  } catch (err) {
+    alert('Chyba při vytvoření zdroje: ' + (err.response?.data?.detail || err.message))
+  } finally {
+    saving.value = false
   }
-  const d = new Date(dateString)
-  return isNaN(d.getTime()) ? dateString : d.toLocaleDateString('cs-CZ')
 }
 </script>
-
-<style lang="scss" scoped>
-.sources-page {
-  &__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: $space-lg;
-    flex-wrap: wrap;
-    gap: $space-base;
-  }
-}
-
-.table-responsive {
-  width: 100%;
-  overflow-x: auto;
-}
-
-.sources-table {
-  th {
-    font-size: $font-size-xs !important;
-    font-weight: $font-weight-semibold !important;
-    color: $text-muted !important;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 2px solid $border-color !important;
-    padding: $space-base !important;
-  }
-
-  td {
-    padding: $space-md $space-base !important;
-    font-size: $font-size-base;
-    border-bottom: 1px solid $border-light !important;
-  }
-
-  &__url {
-    font-weight: $font-weight-medium;
-    color: $text-primary;
-  }
-}
-
-.incident-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: $space-md 0;
-  border-bottom: 1px solid $border-light;
-
-  &:last-child {
-    border-bottom: none;
-  }
-
-  &__left {
-    display: flex;
-    align-items: center;
-    gap: $space-base;
-  }
-
-  &__url {
-    font-size: $font-size-base;
-    color: $text-secondary;
-  }
-
-  &__actions {
-    display: flex;
-    gap: $space-sm;
-  }
-}
-</style>

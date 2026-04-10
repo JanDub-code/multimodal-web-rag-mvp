@@ -1,158 +1,119 @@
 <template>
-  <v-container class="login-page" fluid>
-    <div class="login-wrapper">
-      <v-card class="login-card" elevation="8">
-        <div class="login-card__header">
-          <v-icon color="primary" size="48" class="mb-3">mdi-cube-outline</v-icon>
-          <h1 class="login-card__title">Local Multimodal MVP</h1>
-          <p class="login-card__subtitle">Multimodal Document Intelligence</p>
-        </div>
+  <v-container class="fill-height pa-0" fluid style="background: linear-gradient(135deg, #e0e7ff 0%, #ffffff 100%);">
+    <v-row align="center" justify="center" class="ma-0 w-100 h-100">
+      <v-col cols="12" sm="8" md="5" lg="4" class="d-flex justify-center">
+        <v-card class="elevation-12 rounded-xl w-100" style="overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04) !important;">
+          <!-- Header Banner -->
+          <div class="bg-primary pt-8 pb-10 text-center position-relative" style="background: linear-gradient(135deg, #4f46e5 0%, #8b5cf6 100%);">
+            <v-icon size="72" color="white" class="mb-4 opacity-90">mdi-robot-outline</v-icon>
+            <h2 class="text-h4 font-weight-bold text-white mb-1">AI Asistent</h2>
+            <div class="text-subtitle-1 text-white opacity-80">Interní RAG Vyhledávání</div>
+            
+            <!-- Curvy wave separator (optional CSS shape) -->
+            <div class="position-absolute w-100" style="bottom: -2px; left: 0; line-height: 0;">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320" style="width: 100%; height: 40px; transform: rotate(180deg);" preserveAspectRatio="none">
+                <path fill="#ffffff" fill-opacity="1" d="M0,96L80,112C160,128,320,160,480,165.3C640,171,800,149,960,122.7C1120,96,1280,64,1360,48L1440,32L1440,320L1360,320C1280,320,1120,320,960,320C800,320,640,320,480,320C320,320,160,320,80,320L0,320Z"></path>
+              </svg>
+            </div>
+          </div>
+          
+          <v-card-text class="pa-8 pt-6">
+            <h3 class="text-h6 font-weight-bold text-grey-darken-3 mb-6 text-center">Přihlášení do systému</h3>
+            <v-form @submit.prevent="handleLogin" ref="form">
+              <v-text-field
+                v-model="username"
+                label="Uživatelské jméno"
+                prepend-inner-icon="mdi-account-outline"
+                type="text"
+                required
+                variant="outlined"
+                class="mb-3"
+                density="comfortable"
+                bg-color="grey-lighten-4"
+              ></v-text-field>
 
-        <v-card-text class="login-card__body">
-          <v-select
-            v-model="selectedAccount"
-            label="Účet (dev)"
-            :items="accountOptions"
-            item-title="label"
-            item-value="key"
-            variant="outlined"
-            density="comfortable"
-            prepend-inner-icon="mdi-account-switch"
-            class="mb-1"
-            @update:model-value="applyAccount"
-          />
-          <v-text-field
-            v-model="form.username"
-            label="Uživatelské jméno"
-            prepend-inner-icon="mdi-account-outline"
-            :error-messages="error"
-            autofocus
-            @keyup.enter="handleLogin"
-          />
-          <v-text-field
-            v-model="form.password"
-            label="Heslo"
-            :type="showPassword ? 'text' : 'password'"
-            prepend-inner-icon="mdi-lock-outline"
-            :append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'"
-            @click:append-inner="showPassword = !showPassword"
-            @keyup.enter="handleLogin"
-          />
-          <v-btn
-            color="primary"
-            size="large"
-            block
-            :loading="loading"
-            class="mt-2"
-            @click="handleLogin"
-          >
-            Přihlásit se
-          </v-btn>
-        </v-card-text>
-      </v-card>
-    </div>
+              <v-text-field
+                v-model="password"
+                label="Heslo"
+                prepend-inner-icon="mdi-lock-outline"
+                type="password"
+                required
+                variant="outlined"
+                class="mb-6"
+                density="comfortable"
+                bg-color="grey-lighten-4"
+              ></v-text-field>
+
+              <v-alert v-if="error" type="error" variant="tonal" class="mb-6 rounded-lg text-caption">
+                {{ error }}
+              </v-alert>
+
+              <v-btn
+                type="submit"
+                color="primary"
+                block
+                size="x-large"
+                class="font-weight-bold text-white rounded-lg mb-6"
+                elevation="2"
+                :loading="loading"
+              >
+                Přihlásit se
+              </v-btn>
+            </v-form>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
   </v-container>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
-import { authService } from '@/services/authService'
+import { useAuthStore } from '@/store/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
+const username = ref('user')
+const password = ref('user123')
 const loading = ref(false)
 const error = ref('')
-const showPassword = ref(false)
-const selectedAccount = ref('admin')
 
-const form = ref({
-  username: 'admin',
-  password: 'admin123',
-})
-
-const accountOptions = [
-  { key: 'admin', label: 'Admin (plný přístup)', username: 'admin', password: 'admin123' },
-  { key: 'curator', label: 'Curator (ingest + zdroje)', username: 'curator', password: 'curator123' },
-  { key: 'analyst', label: 'Analyst (dotazy + analýza)', username: 'analyst', password: 'analyst123' },
-  { key: 'user', label: 'User (dotazy)', username: 'user', password: 'user123' },
-]
-
-function applyAccount(key) {
-  const account = accountOptions.find((a) => a.key === key)
-  if (account) {
-    form.value.username = account.username
-    form.value.password = account.password
-  }
+const accounts = {
+  admin: { u: 'admin', p: 'admin123' },
+  curator: { u: 'curator', p: 'curator123' },
+  analyst: { u: 'analyst', p: 'analyst123' },
+  user: { u: 'user', p: 'user123' }
 }
 
-async function handleLogin() {
-  error.value = ''
+const fill = (role) => {
+  username.value = accounts[role].u
+  password.value = accounts[role].p
+}
+
+const handleLogin = async () => {
+  if (!username.value || !password.value) return
+  
   loading.value = true
+  error.value = ''
+  
   try {
-    const data = await authService.login(form.value.username, form.value.password)
-    authStore.login({
-      access_token: data.access_token,
-      role: data.role,
-      username: form.value.username,
-    })
-    router.push('/dashboard')
+    await authStore.login(username.value, password.value)
+    router.push('/')
   } catch (err) {
-    error.value = err?.response?.data?.detail || 'Přihlášení selhalo'
+    error.value = err.response?.data?.detail || 'Neplatné přihlašovací údaje.'
   } finally {
     loading.value = false
   }
 }
-
-// Pre-select admin account
-applyAccount('admin')
 </script>
 
-<style lang="scss" scoped>
-.login-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+<style scoped>
+.opacity-90 {
+  opacity: 0.9;
 }
-
-.login-wrapper {
-  width: 100%;
-  max-width: 440px;
-  padding: $space-base;
-}
-
-.login-card {
-  border-radius: $border-radius-xl !important;
-  overflow: hidden;
-  border: none !important;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3) !important;
-
-  &__header {
-    text-align: center;
-    padding: $space-2xl $space-xl $space-lg;
-    background: linear-gradient(135deg, rgba($primary, 0.05), rgba($accent, 0.05));
-  }
-
-  &__title {
-    font-size: $font-size-2xl;
-    font-weight: $font-weight-bold;
-    color: $text-primary;
-    margin-bottom: $space-xs;
-  }
-
-  &__subtitle {
-    font-size: $font-size-sm;
-    color: $text-secondary;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-  }
-
-  &__body {
-    padding: $space-lg $space-xl $space-2xl;
-  }
+.opacity-80 {
+  opacity: 0.8;
 }
 </style>
