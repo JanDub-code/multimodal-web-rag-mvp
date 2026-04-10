@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,9 +18,22 @@ class Settings(BaseSettings):
     qdrant_collection: str = "chunks"
 
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    ollama_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.2:3b"
-    ollama_vision_model: str | None = None
+    llm_base_url: str = Field(
+        default="http://127.0.0.1:1234/v1",
+        validation_alias=AliasChoices("LLM_BASE_URL", "OPENAI_BASE_URL", "OLLAMA_URL"),
+    )
+    llm_api_key: str = Field(
+        default="lm-studio",
+        validation_alias=AliasChoices("LLM_API_KEY", "OPENAI_API_KEY"),
+    )
+    llm_model: str = Field(
+        default="qwen/qwen3.5-2b",
+        validation_alias=AliasChoices("LLM_MODEL", "OPENAI_MODEL", "OLLAMA_MODEL"),
+    )
+    llm_vision_model: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("LLM_VISION_MODEL", "OPENAI_VISION_MODEL", "OLLAMA_VISION_MODEL"),
+    )
     vision_answer_enabled: bool = False
     vision_extract_on_ingest: bool = False
     vision_max_images: int = 2

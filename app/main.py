@@ -15,6 +15,7 @@ from app.api.routes_ingest import router as ingest_router
 from app.api.routes_query import router as query_router
 from app.config import get_settings
 from app.db.session import engine
+from app.services.multimodal import build_llm_headers, resolve_llm_base_url
 from app.services.request_context import get_request_id, reset_request_id, set_request_id
 
 
@@ -54,9 +55,13 @@ def _check_postgres() -> dict:
         return {"status": "down", "error": str(exc)}
 
 
-def _check_ollama() -> dict:
+def _check_llm_backend() -> dict:
     try:
-        response = requests.get(settings.ollama_url, timeout=3)
+        response = requests.get(
+            f"{resolve_llm_base_url()}/models",
+            headers=build_llm_headers(),
+            timeout=3,
+        )
         if response.ok:
             return {"status": "up"}
         return {"status": "down", "error": f"http_status:{response.status_code}"}
@@ -115,7 +120,7 @@ def health_ready():
 def _health_response() -> JSONResponse:
     postgres = _check_postgres()
     qdrant = _check_qdrant()
-    ollama = _check_ollama()
+    llm = _check_llm_backend()
 
     required_ok = postgres["status"] == "up" and qdrant["status"] == "up"
     body = {
@@ -124,7 +129,7 @@ def _health_response() -> JSONResponse:
             "api": {"status": "up"},
             "postgres": postgres,
             "qdrant": qdrant,
-            "ollama": {"required": False, **ollama},
+            "llm": {"required": False, **llm},
         },
     }
     return JSONResponse(status_code=200 if required_ok else 503, content=body)

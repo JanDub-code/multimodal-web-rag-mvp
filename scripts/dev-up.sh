@@ -4,17 +4,16 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-WITH_OLLAMA="${1:-}"
-
-if [[ "$WITH_OLLAMA" == "--with-ollama" ]]; then
-  export DOCKER_OLLAMA_URL="${DOCKER_OLLAMA_URL:-http://ollama:11434}"
-  echo "[dev-up] Starting core services with ollama profile..."
-  docker compose --profile ollama up -d postgres qdrant ollama
-else
-  export DOCKER_OLLAMA_URL="${DOCKER_OLLAMA_URL:-http://host.docker.internal:11434}"
-  echo "[dev-up] Starting core services..."
-  docker compose up -d postgres qdrant
+if [[ $# -gt 0 ]]; then
+  echo "[dev-up] This script no longer supports Ollama-specific arguments."
+  echo "[dev-up] Start LM Studio separately and run ./scripts/dev-up.sh"
+  exit 1
 fi
+
+export DOCKER_LLM_BASE_URL="${DOCKER_LLM_BASE_URL:-http://host.docker.internal:1234/v1}"
+
+echo "[dev-up] Starting core services..."
+docker compose up -d postgres qdrant
 
 echo "[dev-up] Applying database migrations..."
 docker compose --profile tools run --rm migrate
@@ -22,16 +21,14 @@ docker compose --profile tools run --rm migrate
 echo "[dev-up] Ensuring default users..."
 docker compose run --rm api python -m scripts.init_db
 
-if [[ "$WITH_OLLAMA" == "--with-ollama" ]]; then
-  docker compose --profile ollama up -d api frontend
-else
-  docker compose up -d api frontend
-fi
+echo "[dev-up] Starting api and frontend..."
+docker compose up -d api frontend
 
 echo
 echo "[dev-up] Done."
 echo "Frontend: http://127.0.0.1:8080"
 echo "API: http://127.0.0.1:8000"
 echo "Health: http://127.0.0.1:8000/health"
+echo "LLM base URL for containers: ${DOCKER_LLM_BASE_URL}"
 echo
-echo "Use '--with-ollama' to run local ollama container profile."
+echo "Make sure LM Studio server is running and the configured model is loaded."

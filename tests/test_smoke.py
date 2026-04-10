@@ -208,11 +208,11 @@ def test_extract_screenshot_text_uses_vision_when_tesseract_is_missing(monkeypat
         "image_to_string",
         lambda *args, **kwargs: (_ for _ in ()).throw(ingest.pytesseract.TesseractNotFoundError()),
     )
-    monkeypatch.setattr(ingest.settings, "ollama_model", "qwen3.5:9b")
-    monkeypatch.setattr(ingest.settings, "ollama_vision_model", "qwen3.5:9b")
+    monkeypatch.setattr(ingest.settings, "llm_model", "qwen3.5:9b")
+    monkeypatch.setattr(ingest.settings, "llm_vision_model", "qwen3.5:9b")
     monkeypatch.setattr(
         ingest,
-        "ollama_generate",
+        "llm_chat_generate",
         lambda **kwargs: "Visible screenshot text extracted by vision",
     )
 
@@ -307,7 +307,7 @@ def test_ask_no_rag_mode_returns_direct_answer(monkeypatch, db_session):
 
 
 def test_answer_no_rag_writes_model_call_audit(monkeypatch, db_session):
-    monkeypatch.setattr(answering, "ollama_generate", lambda **kwargs: "Model response")
+    monkeypatch.setattr(answering, "llm_chat_generate", lambda **kwargs: "Model response")
     output = answering.answer_no_rag("What is new?", db=db_session, user_id=42)
 
     assert output == "Model response"
@@ -317,14 +317,14 @@ def test_answer_no_rag_writes_model_call_audit(monkeypatch, db_session):
     metadata = json.loads(entry.metadata_json or "{}")
     assert metadata.get("context") == "query.no_rag"
     assert metadata.get("status") == "ok"
-    assert metadata.get("model") == answering.settings.ollama_model
+    assert metadata.get("model") == answering.settings.llm_model
 
 
 def test_answer_rag_uses_screenshot_as_multimodal_input(monkeypatch, fake_screenshot):
     captured = {}
     monkeypatch.setattr(answering.settings, "vision_answer_enabled", True)
-    monkeypatch.setattr(answering.settings, "ollama_model", "text-model")
-    monkeypatch.setattr(answering.settings, "ollama_vision_model", "vision-model")
+    monkeypatch.setattr(answering.settings, "llm_model", "text-model")
+    monkeypatch.setattr(answering.settings, "llm_vision_model", "vision-model")
 
     def fake_generate(prompt, model, image_paths=None, timeout=None):
         captured["prompt"] = prompt
@@ -332,7 +332,7 @@ def test_answer_rag_uses_screenshot_as_multimodal_input(monkeypatch, fake_screen
         captured["image_paths"] = image_paths
         return "Grounded answer [1]"
 
-    monkeypatch.setattr(answering, "ollama_generate", fake_generate)
+    monkeypatch.setattr(answering, "llm_chat_generate", fake_generate)
     retrieved = [
         {
             "chunk_id": 101,
@@ -445,7 +445,7 @@ def test_rerank_prefers_lexical_match_and_deduplicates_by_document():
             "score": 0.545,
             "doc_id": 2,
             "source_id": 2,
-            "text": "Seznam – najdu tam, co neznám. Mapy, Zboží, Firmy, Video.",
+            "text": "Seznam - najdu tam, co neznam. Mapy, Zbozi, Firmy, Video.",
             "url": "https://www.seznam.cz/",
             "chunk_type": "text",
             "citations": {},
@@ -454,7 +454,7 @@ def test_rerank_prefers_lexical_match_and_deduplicates_by_document():
             "score": 0.503,
             "doc_id": 3,
             "source_id": 3,
-            "text": "Repasované notebooky, přímo od výrobce, se zárukou až tři roky",
+            "text": "Repasovane notebooky, primo od vyrobce, se zarukou az tri roky",
             "url": "https://notebook.cz/",
             "chunk_type": "text",
             "citations": {},
@@ -462,7 +462,7 @@ def test_rerank_prefers_lexical_match_and_deduplicates_by_document():
     ]
 
     results = retrieval._rerank_and_deduplicate_results(
-        query="nějaký repasovaný notebook seženu kde ?",
+        query="nejaky repasovany notebook sezenu kde ?",
         rows=rows,
         top_k=5,
     )
@@ -490,21 +490,21 @@ def test_rag_mode_returns_no_results_message(monkeypatch, db_session):
 def test_health_returns_200_when_required_components_up(monkeypatch, api_client):
     monkeypatch.setattr(app_main, "_check_postgres", lambda: {"status": "up"})
     monkeypatch.setattr(app_main, "_check_qdrant", lambda: {"status": "up"})
-    monkeypatch.setattr(app_main, "_check_ollama", lambda: {"status": "down", "error": "offline"})
+    monkeypatch.setattr(app_main, "_check_llm_backend", lambda: {"status": "down", "error": "offline"})
 
     response = api_client.get("/health")
 
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    assert body["components"]["ollama"]["required"] is False
-    assert body["components"]["ollama"]["status"] == "down"
+    assert body["components"]["llm"]["required"] is False
+    assert body["components"]["llm"]["status"] == "down"
 
 
 def test_health_ready_returns_200_when_required_components_up(monkeypatch, api_client):
     monkeypatch.setattr(app_main, "_check_postgres", lambda: {"status": "up"})
     monkeypatch.setattr(app_main, "_check_qdrant", lambda: {"status": "up"})
-    monkeypatch.setattr(app_main, "_check_ollama", lambda: {"status": "up"})
+    monkeypatch.setattr(app_main, "_check_llm_backend", lambda: {"status": "up"})
 
     response = api_client.get("/health/ready")
 
@@ -515,7 +515,7 @@ def test_health_ready_returns_200_when_required_components_up(monkeypatch, api_c
 def test_health_returns_503_when_required_component_down(monkeypatch, api_client):
     monkeypatch.setattr(app_main, "_check_postgres", lambda: {"status": "down", "error": "db down"})
     monkeypatch.setattr(app_main, "_check_qdrant", lambda: {"status": "up"})
-    monkeypatch.setattr(app_main, "_check_ollama", lambda: {"status": "up"})
+    monkeypatch.setattr(app_main, "_check_llm_backend", lambda: {"status": "up"})
 
     response = api_client.get("/health")
 
@@ -526,7 +526,7 @@ def test_health_returns_503_when_required_component_down(monkeypatch, api_client
 def test_health_ready_returns_503_when_required_component_down(monkeypatch, api_client):
     monkeypatch.setattr(app_main, "_check_postgres", lambda: {"status": "up"})
     monkeypatch.setattr(app_main, "_check_qdrant", lambda: {"status": "down", "error": "qdrant down"})
-    monkeypatch.setattr(app_main, "_check_ollama", lambda: {"status": "up"})
+    monkeypatch.setattr(app_main, "_check_llm_backend", lambda: {"status": "up"})
 
     response = api_client.get("/health/ready")
 
@@ -602,3 +602,4 @@ def test_logout_revokes_refresh_token(api_client, db_session, user_factory):
 
     refresh_after_logout = api_client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
     assert refresh_after_logout.status_code == 401
+
