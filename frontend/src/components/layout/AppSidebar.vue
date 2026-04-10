@@ -4,7 +4,6 @@
     :width="240"
     class="sidebar"
   >
-    <!-- Logo / Title -->
     <div class="sidebar__header">
       <v-icon color="primary" size="28" class="mr-2">mdi-cube-outline</v-icon>
       <span class="sidebar__title" style="font-size: 1.1rem; line-height: 1.2;">Local Multimodal MVP</span>
@@ -12,7 +11,6 @@
 
     <v-divider class="mx-4 mb-2" />
 
-    <!-- Navigation Items -->
     <v-list density="comfortable" nav class="sidebar__nav">
       <v-list-item
         v-for="item in visibleItems"
@@ -54,36 +52,37 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '@/store/auth'
 import { useAppStore } from '@/stores/app'
 
 const authStore = useAuthStore()
 const appStore = useAppStore()
 const route = useRoute()
 
-const isMobile = computed(() => window.innerWidth < 600)
-
 const allItems = [
-  { title: 'Chat', icon: 'mdi-chat-plus-outline', path: '/chat', roles: ['Admin', 'Curator', 'Analyst', 'User'] },
-  { title: 'Audit', icon: 'mdi-shield-check-outline', path: '/audit', roles: ['Admin'] },
-  { title: 'Správa zdrojů', icon: 'mdi-database-outline', path: '/sources', roles: ['Admin', 'Curator'] },
-  { title: 'Systémová nastavení', icon: 'mdi-cog-outline', path: '/settings', roles: ['Admin'] },
-  { title: 'Experimenty', icon: 'mdi-flask-outline', path: '/experiments', roles: ['Analyst'] },
-  { title: 'Compliance', icon: 'mdi-clipboard-check-outline', path: '/compliance', roles: ['Admin', 'Curator', 'Analyst', 'User'] },
+  { title: 'Dashboard', icon: 'mdi-view-dashboard-outline', path: '/dashboard', roles: ['admin', 'curator', 'analyst', 'user'] },
+  { title: 'Chat', icon: 'mdi-chat-plus-outline', path: '/chat', roles: ['admin', 'curator', 'analyst', 'user'] },
+  { title: 'Query', icon: 'mdi-message-text-outline', path: '/query', roles: ['admin', 'curator', 'analyst', 'user'] },
+  { title: 'Audit', icon: 'mdi-shield-check-outline', path: '/audit', roles: ['admin'] },
+  { title: 'Sources', icon: 'mdi-database-outline', path: '/sources', roles: ['admin', 'curator'] },
+  { title: 'Ingest', icon: 'mdi-cloud-upload-outline', path: '/ingest', roles: ['admin', 'curator'] },
+  { title: 'Settings', icon: 'mdi-cog-outline', path: '/settings', roles: ['admin'] },
+  { title: 'Experiments', icon: 'mdi-flask-outline', path: '/experiments', roles: ['analyst'] },
+  { title: 'Compliance', icon: 'mdi-clipboard-check-outline', path: '/compliance', roles: ['admin', 'curator', 'analyst', 'user'] },
 ]
 
 const visibleItems = computed(() =>
-  allItems.filter((item) => item.roles.includes(authStore.role))
+  allItems.filter((item) => item.roles.includes(authStore.roleNormalized))
 )
 
 const roleColor = computed(() => {
   const colors = {
-    Admin: '#7C4DFF',
-    Curator: '#2196F3',
-    Analyst: '#5C6BC0',
-    User: '#4CAF50',
+    admin: '#7C4DFF',
+    curator: '#2196F3',
+    analyst: '#5C6BC0',
+    user: '#4CAF50',
   }
-  return colors[authStore.role] || '#9E9E9E'
+  return colors[authStore.roleNormalized] || '#9E9E9E'
 })
 
 function isActive(path) {

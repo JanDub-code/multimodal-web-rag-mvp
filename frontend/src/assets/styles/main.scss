@@ -1,11 +1,11 @@
 @use './variables' as *;
 @use './mixins' as *;
 
-// ─── Reset & Base ───
-*, *::before, *::after {
+/* Reset and base */
+*,
+*::before,
+*::after {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 html {
@@ -15,13 +15,14 @@ html {
 }
 
 body {
+  margin: 0;
   font-family: $font-family;
   background: $bg-body;
   color: $text-primary;
   line-height: 1.5;
 }
 
-// ─── Global Utilities ───
+/* Global utilities */
 .page-title {
   font-size: $font-size-xl;
   font-weight: $font-weight-bold;
@@ -44,14 +45,14 @@ body {
   color: $text-secondary;
 }
 
-// ─── Card overrides ───
+/* Card overrides */
 .v-card {
   border-radius: $border-radius-lg !important;
   border: 1px solid $border-color !important;
   box-shadow: $shadow-card !important;
 }
 
-// ─── Stat card ───
+/* Stat card */
 .stat-card {
   @include card;
   padding: $space-lg;
@@ -81,7 +82,7 @@ body {
   }
 }
 
-// ─── Role chips ───
+/* Role chips */
 .role-chip {
   &--admin { @include chip($role-admin); }
   &--curator { @include chip($role-curator); }
@@ -90,7 +91,7 @@ body {
   &--system { @include chip($role-system); }
 }
 
-// ─── Status chips ───
+/* Status chips */
 .status-chip {
   &--ok { @include chip($status-ok); }
   &--captcha { @include chip($status-captcha); }
@@ -102,7 +103,7 @@ body {
   &--screenshot { @include chip($strategy-screenshot); }
 }
 
-// ─── Event type chips ───
+/* Event type chips */
 .event-chip {
   display: inline-flex;
   align-items: center;
@@ -114,15 +115,15 @@ body {
   text-transform: uppercase;
 
   &--threshold { background: $info-light; color: $info; }
-  &--test { background: #F3E5F5; color: $accent; }
-  &--login { background: #E8EAF6; color: $primary; }
+  &--test { background: #f3e5f5; color: $accent; }
+  &--login { background: #e8eaf6; color: $primary; }
   &--error { background: $error-light; color: $error; }
   &--ingest { background: $success-light; color: $success; }
   &--query { background: $info-light; color: $info; }
   &--compliance { background: $warning-light; color: $warning; }
 }
 
-// ─── Compliance banner ───
+/* Compliance banner */
 .compliance-banner {
   background: $warning-light;
   border: 1px solid $warning;
@@ -137,28 +138,32 @@ body {
   margin-bottom: $space-base;
 }
 
-// ─── Fade transition ───
+/* Fade transition */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity $transition-base;
 }
+
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
 }
 
-// ─── Scrollbar ───
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: darken($bg-body, 15%);
   border-radius: 3px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: darken($bg-body, 25%);
 }

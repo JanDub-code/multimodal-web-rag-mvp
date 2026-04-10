@@ -5,6 +5,7 @@ import pinia from './store'
 import vuetify from './plugins/vuetify'
 import { useAuthStore } from './store/auth'
 import axios from 'axios'
+import '@/assets/styles/main.scss'
 
 const app = createApp(App)
 

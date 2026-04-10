@@ -12,15 +12,42 @@
               ? 'Enforcement je zapnutý — citlivé akce vyžadují potvrzení.'
               : 'Dev mode — akce se provádějí bez potvrzení se záznamem bypass.' }}
           </p>
+          <div class="text-caption text-muted mt-1">
+            Zdroj režimu: <strong>{{ complianceStore.modeSource }}</strong>
+          </div>
         </div>
-        <v-chip
-          :color="complianceStore.isEnforced ? 'success' : 'warning'"
-          size="large"
-          :prepend-icon="complianceStore.isEnforced ? 'mdi-shield-check' : 'mdi-shield-off-outline'"
-          variant="tonal"
-        >
-          {{ complianceStore.isEnforced ? 'Enforcement ON' : 'Dev Mode' }}
-        </v-chip>
+        <div class="d-flex align-center ga-3 flex-wrap">
+          <v-switch
+            :model-value="complianceStore.isEnforced"
+            :label="complianceStore.isEnforced ? 'Enforcement ON' : 'Dev Mode'"
+            color="primary"
+            hide-details
+            inset
+            :loading="modeSaving"
+            :disabled="!canChangeMode || modeSaving"
+            @update:model-value="toggleEnforcement"
+          />
+          <v-chip
+            :color="complianceStore.isEnforced ? 'success' : 'warning'"
+            size="large"
+            :prepend-icon="complianceStore.isEnforced ? 'mdi-shield-check' : 'mdi-shield-off-outline'"
+            variant="tonal"
+          >
+            {{ complianceStore.isEnforced ? 'Enforcement ON' : 'Dev Mode' }}
+          </v-chip>
+        </div>
+      </div>
+      <v-alert
+        v-if="modeError"
+        type="error"
+        variant="tonal"
+        density="compact"
+        class="mt-4"
+      >
+        {{ modeError }}
+      </v-alert>
+      <div v-if="!canChangeMode" class="text-caption text-muted mt-3">
+        Režim může přepínat pouze role Admin.
       </div>
     </v-card>
 
@@ -106,15 +133,53 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useComplianceStore } from '@/stores/compliance'
+import { useAuthStore } from '@/store/auth'
 import { complianceService } from '@/services/complianceService'
 
 const complianceStore = useComplianceStore()
+const authStore = useAuthStore()
 const loading = ref(false)
 const history = ref([])
+const modeSaving = ref(false)
+const modeError = ref('')
 
 const localConfirmations = computed(() => complianceStore.confirmations)
+const canChangeMode = computed(() => authStore.isAdmin)
 
 onMounted(async () => {
+  await loadMode()
+  await loadHistory()
+})
+
+async function loadMode() {
+  try {
+    modeError.value = ''
+    const mode = await complianceService.getMode()
+    if (typeof mode?.enforcement === 'boolean') {
+      complianceStore.setEnforcement(mode.enforcement, { source: mode.source || 'api' })
+    }
+  } catch (err) {
+    console.error('Failed to load compliance mode:', err)
+    modeError.value = 'Nepodařilo se načíst compliance režim z API.'
+  }
+}
+
+async function toggleEnforcement(value) {
+  if (!canChangeMode.value) return
+  modeSaving.value = true
+  modeError.value = ''
+  try {
+    const data = await complianceService.setMode(Boolean(value))
+    complianceStore.setEnforcement(Boolean(data?.enforcement), { source: data?.source || 'api' })
+  } catch (err) {
+    console.error('Failed to update compliance mode:', err)
+    modeError.value = 'Přepnutí režimu se nezdařilo.'
+  } finally {
+    modeSaving.value = false
+  }
+}
+
+async function loadHistory() {
   loading.value = true
   try {
     const data = await complianceService.getHistory()
@@ -124,7 +189,7 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
 
 function formatTime(ts) {
   return new Date(ts).toLocaleString('cs-CZ')
@@ -134,6 +199,11 @@ function formatTime(ts) {
 <style lang="scss" scoped>
 .compliance-page {
   max-width: 1000px;
+  padding: $space-base $space-lg;
+
+  @media (max-width: 599px) {
+    padding: $space-base;
+  }
 
   code {
     background: $bg-body;

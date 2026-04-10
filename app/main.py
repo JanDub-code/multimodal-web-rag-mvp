@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import text as sa_text
 
 from app.api.routes_auth import router as auth_router
+from app.api.routes_compliance import router as compliance_router
 from app.api.routes_ingest import router as ingest_router
 from app.api.routes_query import router as query_router
 from app.config import get_settings
@@ -105,6 +106,7 @@ async def request_id_middleware(request: Request, call_next):
 app.include_router(auth_router)
 app.include_router(ingest_router)
 app.include_router(query_router)
+app.include_router(compliance_router)
 
 
 @app.get("/health")

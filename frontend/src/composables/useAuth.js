@@ -1,20 +1,20 @@
 import { computed } from 'vue'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '@/store/auth'
 
 export function useAuth() {
   const authStore = useAuthStore()
 
-  const isAdmin = computed(() => authStore.role === 'Admin')
-  const isCurator = computed(() => authStore.role === 'Curator')
-  const isAnalyst = computed(() => authStore.role === 'Analyst')
-  const isUser = computed(() => authStore.role === 'User')
+  const isAdmin = computed(() => authStore.isAdmin)
+  const isCurator = computed(() => authStore.isCurator)
+  const isAnalyst = computed(() => authStore.isAnalyst)
+  const isUser = computed(() => authStore.isUser)
 
-  const canIngest = computed(() => authStore.hasRole('Admin', 'Curator'))
-  const canManageSources = computed(() => authStore.hasRole('Admin', 'Curator'))
-  const canViewAudit = computed(() => authStore.hasRole('Admin'))
-  const canManageSettings = computed(() => authStore.hasRole('Admin'))
-  const canQuery = computed(() => authStore.hasRole('Admin', 'Curator', 'Analyst', 'User'))
-  const canViewExperiments = computed(() => authStore.hasRole('Analyst'))
+  const canIngest = computed(() => authStore.hasRole('admin', 'curator'))
+  const canManageSources = computed(() => authStore.hasRole('admin', 'curator'))
+  const canViewAudit = computed(() => authStore.hasRole('admin'))
+  const canManageSettings = computed(() => authStore.hasRole('admin'))
+  const canQuery = computed(() => authStore.hasRole('admin', 'curator', 'analyst', 'user'))
+  const canViewExperiments = computed(() => authStore.hasRole('analyst'))
 
   return {
     isAdmin,

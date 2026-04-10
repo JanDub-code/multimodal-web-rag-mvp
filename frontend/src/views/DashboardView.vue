@@ -146,6 +146,12 @@ function formatDate(dateString) {
 
 <style lang="scss" scoped>
 .dashboard {
+  padding: $space-base $space-lg;
+
+  @media (max-width: 599px) {
+    padding: $space-base;
+  }
+
   // Stats row is global styled
 
   .quick-actions {

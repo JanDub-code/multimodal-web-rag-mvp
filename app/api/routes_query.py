@@ -9,6 +9,7 @@ from app.db.models import User
 from app.db.session import get_db
 from app.services.answering import answer_no_rag, answer_rag
 from app.services.audit import write_audit
+from app.services.compliance import resolve_sensitive_action_compliance
 from app.services.retrieval import search_top_k
 
 
@@ -24,6 +25,10 @@ class QueryRequest(BaseModel):
     query: str = Field(..., max_length=1000)
     mode: QueryMode = QueryMode.rag
     top_k: int = Field(default=5, ge=1, le=20)
+    operation_id: str | None = Field(default=None, max_length=160)
+    compliance_confirmed: bool | None = None
+    compliance_reason: str | None = Field(default=None, max_length=500)
+    compliance_bypassed: bool | None = None
 
 
 @router.post("/")
@@ -32,9 +37,23 @@ def ask(
     user: User = Depends(require_roles("Admin", "Curator", "Analyst", "User")),
     db: Session = Depends(get_db),
 ):
+    compliance = resolve_sensitive_action_compliance(
+        db=db,
+        user=user,
+        action_type="query.execute",
+        operation_id=payload.operation_id,
+        compliance_confirmed=payload.compliance_confirmed,
+        compliance_reason=payload.compliance_reason,
+        compliance_bypassed=payload.compliance_bypassed,
+    )
+
     if payload.mode == QueryMode.no_rag:
         answer = answer_no_rag(payload.query, db=db, user_id=user.id)
-        response = {"mode": QueryMode.no_rag.value, "answer": answer, "citations": []}
+        response = {
+            "mode": QueryMode.no_rag.value,
+            "answer": answer,
+            "citations": [],
+        }
     else:
         retrieved = search_top_k(payload.query, top_k=payload.top_k)
         rag = answer_rag(payload.query, retrieved, db=db, user_id=user.id)
@@ -45,7 +64,20 @@ def ask(
         action="query.executed",
         object_ref="query",
         user_id=user.id,
-        metadata={"mode": payload.mode.value, "query": payload.query[:300]},
+        metadata={
+            "mode": payload.mode.value,
+            "query": payload.query[:300],
+            "operation_id": compliance.operation_id,
+            "compliance_confirmed": compliance.compliance_confirmed,
+            "compliance_bypassed": compliance.compliance_bypassed,
+            "compliance_reason": compliance.compliance_reason,
+        },
     )
     db.commit()
-    return response
+    return {
+        **response,
+        "operation_id": compliance.operation_id,
+        "compliance_confirmed": compliance.compliance_confirmed,
+        "compliance_bypassed": compliance.compliance_bypassed,
+        "compliance_reason": compliance.compliance_reason,
+    }

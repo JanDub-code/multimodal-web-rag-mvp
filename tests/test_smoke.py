@@ -5,10 +5,10 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from app.api import routes_ingest, routes_query
+from app.api import routes_compliance, routes_ingest, routes_query
 from app.db.models import AuditLog, Chunk, Document, Incident, IngestJob, RefreshToken, Source
 from app import main as app_main
-from app.services import answering, extract, incidents, ingest, retrieval, url_safety
+from app.services import answering, compliance, extract, incidents, ingest, retrieval, url_safety
 from app.services.request_context import reset_request_id, set_request_id
 
 
@@ -294,16 +294,25 @@ def test_query_request_rejects_invalid_mode():
 
 
 def test_ask_no_rag_mode_returns_direct_answer(monkeypatch, db_session):
+    compliance.set_compliance_enforcement_override(False)
     user = SimpleNamespace(id=1, role="User")
     monkeypatch.setattr(routes_query, "answer_no_rag", lambda query, **kwargs: "direct answer")
 
-    response = routes_query.ask(
-        payload=routes_query.QueryRequest(query="What is this?", mode=routes_query.QueryMode.no_rag),
-        user=user,
-        db=db_session,
-    )
+    try:
+        response = routes_query.ask(
+            payload=routes_query.QueryRequest(query="What is this?", mode=routes_query.QueryMode.no_rag),
+            user=user,
+            db=db_session,
+        )
+    finally:
+        compliance.set_compliance_enforcement_override(None)
 
-    assert response == {"mode": "no-rag", "answer": "direct answer", "citations": []}
+    assert response["mode"] == "no-rag"
+    assert response["answer"] == "direct answer"
+    assert response["citations"] == []
+    assert response["operation_id"].startswith("op-")
+    assert response["compliance_bypassed"] is True
+    assert response["compliance_confirmed"] is False
 
 
 def test_answer_no_rag_writes_model_call_audit(monkeypatch, db_session):
@@ -473,18 +482,147 @@ def test_rerank_prefers_lexical_match_and_deduplicates_by_document():
 
 
 def test_rag_mode_returns_no_results_message(monkeypatch, db_session):
+    compliance.set_compliance_enforcement_override(False)
     user = SimpleNamespace(id=1, role="User")
     monkeypatch.setattr(routes_query, "search_top_k", lambda query, top_k=5: [])
 
-    response = routes_query.ask(
-        payload=routes_query.QueryRequest(query="Unrelated", mode=routes_query.QueryMode.rag),
-        user=user,
-        db=db_session,
-    )
+    try:
+        response = routes_query.ask(
+            payload=routes_query.QueryRequest(query="Unrelated", mode=routes_query.QueryMode.rag),
+            user=user,
+            db=db_session,
+        )
+    finally:
+        compliance.set_compliance_enforcement_override(None)
 
     assert response["mode"] == "rag"
     assert response["citations"] == []
     assert response["answer"] == "No relevant documents found for this query."
+    assert response["operation_id"].startswith("op-")
+    assert response["compliance_bypassed"] is True
+
+
+def test_query_requires_compliance_confirmation_when_enforced(monkeypatch, db_session):
+    compliance.set_compliance_enforcement_override(True)
+    user = SimpleNamespace(id=1, role="User")
+    monkeypatch.setattr(routes_query, "answer_no_rag", lambda query, **kwargs: "direct answer")
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            routes_query.ask(
+                payload=routes_query.QueryRequest(query="What is this?", mode=routes_query.QueryMode.no_rag),
+                user=user,
+                db=db_session,
+            )
+    finally:
+        compliance.set_compliance_enforcement_override(None)
+    assert exc_info.value.status_code == 422
+    assert "Compliance confirmation is required" in exc_info.value.detail
+
+
+def test_query_accepts_confirmation_when_enforced(monkeypatch, db_session):
+    compliance.set_compliance_enforcement_override(True)
+    user = SimpleNamespace(id=1, role="User")
+    monkeypatch.setattr(routes_query, "answer_no_rag", lambda query, **kwargs: "direct answer")
+
+    try:
+        response = routes_query.ask(
+            payload=routes_query.QueryRequest(
+                query="What is this?",
+                mode=routes_query.QueryMode.no_rag,
+                operation_id="op-enforced-1",
+                compliance_confirmed=True,
+                compliance_reason="scheduled test",
+            ),
+            user=user,
+            db=db_session,
+        )
+    finally:
+        compliance.set_compliance_enforcement_override(None)
+
+    assert response["operation_id"] == "op-enforced-1"
+    assert response["compliance_confirmed"] is True
+    assert response["compliance_bypassed"] is False
+
+
+def test_ingest_requires_compliance_confirmation_when_enforced(monkeypatch, db_session, source):
+    compliance.set_compliance_enforcement_override(True)
+    user = SimpleNamespace(id=1, role="Curator")
+    monkeypatch.setattr(routes_ingest, "run_ingest", lambda **kwargs: {"status": "completed", "document_id": 1})
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            routes_ingest.ingest_url(
+                payload=routes_ingest.IngestRequest(source_id=source.id, url=f"{source.base_url}/article"),
+                user=user,
+                db=db_session,
+            )
+    finally:
+        compliance.set_compliance_enforcement_override(None)
+    assert exc_info.value.status_code == 422
+    assert "Compliance confirmation is required" in exc_info.value.detail
+
+
+def test_ingest_generates_operation_id_and_bypasses_in_dev_mode(monkeypatch, db_session, source):
+    compliance.set_compliance_enforcement_override(False)
+    user = SimpleNamespace(id=1, role="Curator")
+    monkeypatch.setattr(routes_ingest, "run_ingest", lambda **kwargs: {"status": "completed", "document_id": 1})
+
+    try:
+        response = routes_ingest.ingest_url(
+            payload=routes_ingest.IngestRequest(source_id=source.id, url=f"{source.base_url}/article"),
+            user=user,
+            db=db_session,
+        )
+    finally:
+        compliance.set_compliance_enforcement_override(None)
+
+    assert response["operation_id"].startswith("op-")
+    assert response["compliance_confirmed"] is False
+    assert response["compliance_bypassed"] is True
+
+
+def test_compliance_history_returns_entries_from_audit(db_session, user_factory):
+    compliance.set_compliance_enforcement_override(False)
+    user = user_factory("history_user", "secret", role="User")
+    try:
+        decision = compliance.resolve_sensitive_action_compliance(
+            db=db_session,
+            user=user,
+            action_type="query.execute",
+            operation_id="op-history-1",
+            compliance_confirmed=False,
+            compliance_reason="",
+            compliance_bypassed=True,
+        )
+        db_session.commit()
+    finally:
+        compliance.set_compliance_enforcement_override(None)
+
+    history_rows = routes_compliance.history(limit=20, user=user, db=db_session)
+
+    assert len(history_rows) >= 1
+    assert history_rows[0]["operation_id"] == decision.operation_id
+    assert history_rows[0]["action"] == "query.execute"
+    assert history_rows[0]["compliance_bypassed"] is True
+
+
+def test_compliance_mode_set_and_get_uses_runtime_override():
+    compliance.set_compliance_enforcement_override(None)
+    viewer = SimpleNamespace(id=1, role="User")
+    admin = SimpleNamespace(id=2, role="Admin")
+
+    initial = routes_compliance.get_mode(user=viewer)
+    updated = routes_compliance.set_mode(
+        payload=routes_compliance.ComplianceModeUpdateRequest(enforcement=not initial["enforcement"]),
+        user=admin,
+    )
+    after = routes_compliance.get_mode(user=viewer)
+
+    compliance.set_compliance_enforcement_override(None)
+
+    assert updated["source"] == "runtime_override"
+    assert after["enforcement"] == updated["enforcement"]
 
 
 def test_health_returns_200_when_required_components_up(monkeypatch, api_client):

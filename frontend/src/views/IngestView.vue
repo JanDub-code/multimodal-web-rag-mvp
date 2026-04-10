@@ -128,6 +128,14 @@
         </v-table>
       </div>
     </v-card>
+
+    <ComplianceDialog
+      :model-value="compliance.showDialog.value"
+      :action-type="compliance.pendingActionType.value"
+      :operation-id="compliance.pendingOperationId.value"
+      @confirm="(reason) => compliance.confirmCompliance(reason)"
+      @cancel="compliance.cancelCompliance()"
+    />
   </div>
 </template>
 
@@ -135,8 +143,13 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ingestService } from '@/services/ingestService'
+import { useCompliance } from '@/composables/useCompliance'
+import { useOperationId } from '@/composables/useOperationId'
+import ComplianceDialog from '@/components/compliance/ComplianceDialog.vue'
 
 const route = useRoute()
+const compliance = useCompliance()
+const { generateBatchId } = useOperationId()
 const sources = ref([])
 const sourcesLoading = ref(false)
 const selectedSource = ref(null)
@@ -195,9 +208,15 @@ async function runSingleIngest() {
   ingestResult.value = null
   ingestLoading.value = true
   try {
-    const operationId = `ingest-${Date.now()}`
-    const data = await ingestService.runIngest(selectedSource.value, ingestUrl.value, operationId)
-    ingestResult.value = data
+    await compliance.guardAction('ingest.run', async (actionContext) => {
+      const data = await ingestService.runIngest(
+        selectedSource.value,
+        ingestUrl.value,
+        actionContext.operationId,
+        actionContext
+      )
+      ingestResult.value = data
+    })
   } catch (err) {
     console.error('Ingest failed:', err)
   } finally {
@@ -208,11 +227,18 @@ async function runSingleIngest() {
 async function runBatchIngest() {
   batchResults.value = null
   batchLoading.value = true
-  batchId.value = `batch-${Date.now()}`
   try {
     const urls = batchUrls.value.split('\n').map((u) => u.trim()).filter(Boolean)
-    const data = await ingestService.runBatchIngest(batchSource.value, urls, batchId.value)
-    batchResults.value = data
+    await compliance.guardAction('ingest.run', async (actionContext) => {
+      batchId.value = generateBatchId()
+      const data = await ingestService.runBatchIngest(
+        batchSource.value,
+        urls,
+        batchId.value,
+        actionContext
+      )
+      batchResults.value = data
+    })
   } catch (err) {
     console.error('Batch ingest failed:', err)
   } finally {
@@ -224,5 +250,10 @@ async function runBatchIngest() {
 <style lang="scss" scoped>
 .ingest-page {
   max-width: 900px;
+  padding: $space-base $space-lg;
+
+  @media (max-width: 599px) {
+    padding: $space-base;
+  }
 }
 </style>

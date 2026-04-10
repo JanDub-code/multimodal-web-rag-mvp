@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useComplianceStore } from '@/stores/compliance'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '@/store/auth'
 
 describe('Compliance Guard', () => {
   beforeEach(() => {

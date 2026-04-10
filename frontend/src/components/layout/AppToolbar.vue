@@ -43,7 +43,7 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '@/store/auth'
 import { useAppStore } from '@/stores/app'
 import { useComplianceStore } from '@/stores/compliance'
 

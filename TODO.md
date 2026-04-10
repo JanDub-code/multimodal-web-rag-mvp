@@ -54,17 +54,17 @@ Definition of Done:
 
 ### Stream C - Compliance flow (UI + API + audit)
 - [x] Přidat compliance guard do UI před spuštěním citlivé akce (ingest/query): explicitní potvrzení + text souhlasu.
-- [x] Přidat povinné potvrzení operátora „kdo a kdy“ (uživatel, timestamp, akce, request_id, volitelně reason) s uložením do audit logu (Frontend mocked).
-- [x] Zablokovat spuštění akce bez compliance potvrzení jak v UI, tak v API validaci (nejen frontend kontrola). (Frontend UI guard done).
-- [x] Přidat přepínač režimu: `COMPLIANCE_ENFORCEMENT=false` (dev mode) a `true` (test/prod enforcement) s jasným chováním v UI i API. (Frontend enforcement toggle done).
+- [x] Přidat povinné potvrzení operátora „kdo a kdy“ (uživatel, timestamp, akce, request_id, volitelně reason) s uložením do audit logu.
+- [x] Zablokovat spuštění akce bez compliance potvrzení jak v UI, tak v API validaci (nejen frontend kontrola).
+- [x] Přidat přepínač režimu: `COMPLIANCE_ENFORCEMENT=false` (dev mode) a `true` (test/prod enforcement) s jasným chováním v UI i API.
 
 ### Stream D - Identifikátory a traceability
 - [x] Zavést `operation_id` auto-generované ve frontendu pro všechny akce (single i batch), bez ručního zadávání uživatelem.
 - [x] Pro batch ingest zavést `batch_id` + `row_id` pro trasování, idempotenci a chybové reporty.
-- [ ] Zavést backend fallback: když klient nepošle `operation_id`, backend ho vytvoří a vrátí v response.
+- [x] Zavést backend fallback: když klient nepošle `operation_id`, backend ho vytvoří a vrátí v response.
 
 ### Stream E - Testy
-- [x] Doplnit testy pro oba režimy (`dev mode` vs enforcement mode), včetně negativních scénářů bez potvrzení. (Frontend tests done)
+- [x] Doplnit testy pro oba režimy (`dev mode` vs enforcement mode), včetně negativních scénářů bez potvrzení.
 
 Definition of Done:
 - frontend je použitelný na desktopu i mobilu bez layout glitchů,
@@ -114,7 +114,7 @@ Definition of Done:
 
 ## P2 - růstové věci
 
-- [ ] Consent enforcement model (povinné blokace ingestu bez souhlasu).
+- [ ] Advanced consent policy model (per-source/per-action pravidla nad ramec globalniho `COMPLIANCE_ENFORCEMENT`).
 - [ ] Async job vrstva (`redis` + workeři) pro ingest/AI orchestrace.
 - [ ] Explicitní inference contract modul.
 - [ ] Rozhodnutí a ADR: Qdrant vs `pgvector`.

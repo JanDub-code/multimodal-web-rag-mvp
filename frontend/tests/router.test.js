@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '@/store/auth'
 
 describe('Router RBAC Guards', () => {
   // Since we can't easily test vue-router guards in isolation without full setup,
@@ -14,6 +14,7 @@ describe('Router RBAC Guards', () => {
   const ROUTE_ROLES = {
     '/dashboard': ['Admin', 'Curator', 'Analyst', 'User'],
     '/chat': ['Admin', 'Curator', 'Analyst', 'User'],
+    '/query': ['Admin', 'Curator', 'Analyst', 'User'],
     '/audit': ['Admin'],
     '/sources': ['Admin', 'Curator'],
     '/settings': ['Admin'],

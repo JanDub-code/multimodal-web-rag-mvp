@@ -22,6 +22,7 @@ Aktualni inference backend je OpenAI-compatible API. Vychozi lokalni cil je LM S
 - volitelna vision extrakce pri ingestu do sekci a tabulek
 - canonical dokument, chunking (`text` + `table`) a embeddingy do Qdrantu
 - `rag` a `no-rag` query flow
+- compliance enforcement flow (`Dev Mode` bypass vs `Enforcement ON`)
 - audit log vcetne eventu `model.call`
 - incident flow (`captcha`, `fetch_error`, `render_error`, `parse_error`, `policy_error`, `ingest_failure`)
 - request correlation pres `X-Request-ID`
@@ -74,8 +75,20 @@ LM Studio bezi mimo Docker. Kontejner `api` se na hosta pripojuje pres `DOCKER_L
 - `VISION_ANSWER_ENABLED`: pripoji screenshoty do RAG odpovedi
 - `VISION_EXTRACT_ON_INGEST`: zapne strukturovanou vision extrakci pri ingestu
 - `EMBEDDING_MODEL`: embedding model pro lokalni retrieval
+- `COMPLIANCE_ENFORCEMENT`: `false` = Dev Mode bypass (akce bezi, audit nese bypass flag), `true` = API vyzaduje potvrzeni pro `ingest`/`query`
 
 Pokud pouzivas textovy model bez podpory obrazu, nech `VISION_ANSWER_ENABLED=false`, `VISION_EXTRACT_ON_INGEST=false` a `LLM_VISION_MODEL` prazdny.
+
+## Compliance API
+
+- `GET /api/compliance/mode`: vrati aktualni enforcement rezim.
+- `PUT /api/compliance/mode`: prepne enforcement (`admin` role).
+- `GET /api/compliance/history`: vrati historii compliance potvrzeni/bypass.
+- `POST /api/compliance/confirm`: zapise explicitni potvrzeni/bypass.
+
+`POST /api/query/` a `POST /api/ingest/run` podporuji:
+- `operation_id` (volitelne): pokud chybi, backend vytvori fallback a vrati ho v response.
+- `compliance_confirmed` (bool), `compliance_reason` (string), `compliance_bypassed` (bool).
 
 ## Health a readiness
 

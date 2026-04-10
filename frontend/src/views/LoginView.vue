@@ -109,7 +109,7 @@ async function handleLogin() {
 
   try {
     await authStore.login(username.value, password.value)
-    router.push('/')
+    router.push('/chat')
   } catch (err) {
     error.value = err.response?.data?.detail || 'Neplatne prihlasovaci udaje.'
   } finally {

@@ -9,6 +9,7 @@ from app.api.routes_auth import require_roles
 from app.db.models import Source, User
 from app.db.session import get_db
 from app.services.audit import write_audit
+from app.services.compliance import resolve_sensitive_action_compliance
 from app.services.ingest import run_ingest
 from app.services.url_safety import UnsafeUrlError, validate_public_url
 
@@ -27,6 +28,12 @@ class SourceCreate(BaseModel):
 class IngestRequest(BaseModel):
     source_id: int
     url: str = Field(..., min_length=1, max_length=2000)
+    operation_id: str | None = Field(default=None, max_length=160)
+    batch_id: str | None = Field(default=None, max_length=160)
+    row_id: int | None = Field(default=None, ge=1)
+    compliance_confirmed: bool | None = None
+    compliance_reason: str | None = Field(default=None, max_length=500)
+    compliance_bypassed: bool | None = None
 
 
 def _validate_url_or_422(url: str) -> None:
@@ -133,6 +140,16 @@ def ingest_url(
     user: User = Depends(require_roles("Admin", "Curator")),
     db: Session = Depends(get_db),
 ):
+    compliance = resolve_sensitive_action_compliance(
+        db=db,
+        user=user,
+        action_type="ingest.run",
+        operation_id=payload.operation_id,
+        compliance_confirmed=payload.compliance_confirmed,
+        compliance_reason=payload.compliance_reason,
+        compliance_bypassed=payload.compliance_bypassed,
+    )
+
     _validate_url_or_422(payload.url)
     source = db.get(Source, payload.source_id)
     if not source:
@@ -149,7 +166,15 @@ def ingest_url(
             action="ingest.failed",
             object_ref=f"source:{payload.source_id}",
             user_id=user.id,
-            metadata={"error": str(exc)},
+            metadata={
+                "error": str(exc),
+                "operation_id": compliance.operation_id,
+                "batch_id": payload.batch_id,
+                "row_id": payload.row_id,
+                "compliance_confirmed": compliance.compliance_confirmed,
+                "compliance_bypassed": compliance.compliance_bypassed,
+                "compliance_reason": compliance.compliance_reason,
+            },
         )
         try:
             db.commit()
@@ -158,6 +183,28 @@ def ingest_url(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     action = "ingest.blocked" if result.get("status") == "blocked_captcha" else "ingest.completed"
-    write_audit(db, action=action, object_ref=f"source:{payload.source_id}", user_id=user.id, metadata=result)
+    write_audit(
+        db,
+        action=action,
+        object_ref=f"source:{payload.source_id}",
+        user_id=user.id,
+        metadata={
+            **result,
+            "operation_id": compliance.operation_id,
+            "batch_id": payload.batch_id,
+            "row_id": payload.row_id,
+            "compliance_confirmed": compliance.compliance_confirmed,
+            "compliance_bypassed": compliance.compliance_bypassed,
+            "compliance_reason": compliance.compliance_reason,
+        },
+    )
     db.commit()
-    return result
+    return {
+        **result,
+        "operation_id": compliance.operation_id,
+        "batch_id": payload.batch_id,
+        "row_id": payload.row_id,
+        "compliance_confirmed": compliance.compliance_confirmed,
+        "compliance_bypassed": compliance.compliance_bypassed,
+        "compliance_reason": compliance.compliance_reason,
+    }

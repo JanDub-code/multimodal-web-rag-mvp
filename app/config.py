@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     refresh_token_expire_minutes: int = 43200
     quality_threshold_chars: int = 300
     retrieval_min_score: float = 0.25
+    compliance_enforcement: bool = False
 
     def ensure_dirs(self) -> None:
         Path(self.evidence_dir).mkdir(parents=True, exist_ok=True)

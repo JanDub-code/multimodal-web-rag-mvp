@@ -253,8 +253,9 @@ async function runQuery() {
   if (!text) return
 
   // Optimistic User Message UI update
+  const optimisticId = `temp-${Date.now()}`
   messages.value.push({
-    id: `temp-${Date.now()}`,
+    id: optimisticId,
     role: 'user',
     content: text,
     timestamp: new Date().toISOString()
@@ -266,7 +267,9 @@ async function runQuery() {
 
   try {
     let targetSessionId = currentSessionId.value
-    await compliance.guardAction('query.execute', async (operationId) => {
+    await compliance.guardAction('query.execute', async (actionContext) => {
+      const operationId = actionContext.operationId
+
       // If we don't have a session yet, let's create one
       if (!targetSessionId) {
         // Snippet out 20 first chars of query for a title
@@ -279,7 +282,14 @@ async function runQuery() {
       }
 
       // Execute query
-      const data = await queryService.query(text, mode.value, topK.value, operationId, targetSessionId)
+      const data = await queryService.query(
+        text,
+        mode.value,
+        topK.value,
+        operationId,
+        targetSessionId,
+        actionContext
+      )
       
       // The API should technically return the updated message or whole session, we are mocking returning the AI message and citations.
       // Append the AI message into history list
@@ -288,6 +298,10 @@ async function runQuery() {
       }
     })
   } catch (err) {
+    const wasCancelled = String(err?.message || '').toLowerCase().includes('cancelled')
+    if (wasCancelled) {
+      messages.value = messages.value.filter((m) => m.id !== optimisticId)
+    }
     console.error('Query failed:', err)
     // Handle error UI if needed
   } finally {
