@@ -1,16 +1,15 @@
-<template>
+﻿<template>
   <div class="ingest-page">
     <h1 class="page-title">Ingest</h1>
 
-    <!-- Single Ingest -->
     <v-card class="pa-5 mb-6">
-      <h3 class="section-title">Jednotlivý ingest</h3>
+      <h3 class="section-title">Single ingest</h3>
 
       <v-row>
         <v-col cols="12" sm="6">
           <v-select
             v-model="selectedSource"
-            label="Zdroj"
+            label="Source"
             :items="sources"
             item-title="label"
             item-value="id"
@@ -22,7 +21,7 @@
         <v-col cols="12" sm="6">
           <v-text-field
             v-model="ingestUrl"
-            label="URL k ingestování"
+            label="URL to ingest"
             placeholder="https://..."
             density="comfortable"
           />
@@ -36,22 +35,21 @@
         density="compact"
         class="mb-4"
       >
-        URL je mimo rozsah vybraného zdroje.
+        URL is outside the selected source scope.
       </v-alert>
 
       <div class="d-flex justify-end">
         <v-btn
           color="primary"
           :loading="ingestLoading"
-          :disabled="!ingestUrl"
+          :disabled="!selectedSource || !ingestUrl"
           prepend-icon="mdi-cloud-upload-outline"
           @click="runSingleIngest"
         >
-          Spustit ingest
+          Run ingest
         </v-btn>
       </div>
 
-      <!-- Result -->
       <v-alert
         v-if="ingestResult"
         :type="ingestResult.status === 'completed' ? 'success' : 'error'"
@@ -65,16 +63,15 @@
       </v-alert>
     </v-card>
 
-    <!-- Batch Ingest -->
     <v-card class="pa-5">
       <h3 class="section-title">Batch ingest</h3>
       <p class="text-muted mb-4">
-        Vložte URL adresy oddělené novými řádky pro hromadný ingest.
+        Enter one URL per line for batch ingest.
       </p>
 
       <v-select
         v-model="batchSource"
-        label="Zdroj"
+        label="Source"
         :items="sources"
         item-title="label"
         item-value="id"
@@ -85,7 +82,7 @@
 
       <v-textarea
         v-model="batchUrls"
-        label="URL adresy (jeden na řádek)"
+        label="URLs (one per line)"
         placeholder="https://example.com/page-1&#10;https://example.com/page-2&#10;https://example.com/page-3"
         rows="5"
         variant="outlined"
@@ -103,13 +100,12 @@
           prepend-icon="mdi-cloud-upload-outline"
           @click="runBatchIngest"
         >
-          Spustit batch ingest
+          Run batch ingest
         </v-btn>
       </div>
 
-      <!-- Batch Results -->
       <div v-if="batchResults" class="mt-4">
-        <h4 class="mb-2">Výsledky batch ingestu</h4>
+        <h4 class="mb-2">Batch results</h4>
         <v-table density="compact">
           <thead>
             <tr>
@@ -132,28 +128,15 @@
         </v-table>
       </div>
     </v-card>
-
-    <!-- Compliance Dialog -->
-    <ComplianceDialog
-      :model-value="compliance.showDialog.value"
-      :action-type="compliance.pendingActionType.value"
-      :operation-id="compliance.pendingOperationId.value"
-      @confirm="(reason) => compliance.confirmCompliance(reason)"
-      @cancel="compliance.cancelCompliance()"
-    />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ingestService } from '@/services/ingestService'
-import { useCompliance } from '@/composables/useCompliance'
-import { useOperationId } from '@/composables/useOperationId'
-import ComplianceDialog from '@/components/compliance/ComplianceDialog.vue'
 
-const compliance = useCompliance()
-const { generateBatchId } = useOperationId()
-
+const route = useRoute()
 const sources = ref([])
 const sourcesLoading = ref(false)
 const selectedSource = ref(null)
@@ -174,15 +157,31 @@ onMounted(async () => {
     const data = await ingestService.getSourceList()
     sources.value = (data || []).map((s) => ({
       id: s.id,
-      label: `${s.id} – ${s.name} (${s.base_url})`,
+      label: `${s.id} - ${s.name} (${s.base_url})`,
       base_url: s.base_url,
     }))
+    prefillFromRoute()
   } catch (err) {
     console.error('Failed to load sources:', err)
   } finally {
     sourcesLoading.value = false
   }
 })
+
+function prefillFromRoute() {
+  const sourceIdRaw = route.query.source_id
+  const urlRaw = route.query.url
+
+  const sourceId = typeof sourceIdRaw === 'string' ? Number(sourceIdRaw) : null
+  if (sourceId && sources.value.some((s) => s.id === sourceId)) {
+    selectedSource.value = sourceId
+    syncUrl()
+  }
+
+  if (typeof urlRaw === 'string' && urlRaw.trim()) {
+    ingestUrl.value = urlRaw.trim()
+  }
+}
 
 function syncUrl() {
   const source = sources.value.find((s) => s.id === selectedSource.value)
@@ -196,10 +195,9 @@ async function runSingleIngest() {
   ingestResult.value = null
   ingestLoading.value = true
   try {
-    await compliance.guardAction('ingest.run', async (operationId) => {
-      const data = await ingestService.runIngest(selectedSource.value, ingestUrl.value, operationId)
-      ingestResult.value = data
-    })
+    const operationId = `ingest-${Date.now()}`
+    const data = await ingestService.runIngest(selectedSource.value, ingestUrl.value, operationId)
+    ingestResult.value = data
   } catch (err) {
     console.error('Ingest failed:', err)
   } finally {
@@ -210,13 +208,11 @@ async function runSingleIngest() {
 async function runBatchIngest() {
   batchResults.value = null
   batchLoading.value = true
-  batchId.value = generateBatchId()
+  batchId.value = `batch-${Date.now()}`
   try {
-    await compliance.guardAction('ingest.run', async () => {
-      const urls = batchUrls.value.split('\n').map((u) => u.trim()).filter(Boolean)
-      const data = await ingestService.runBatchIngest(batchSource.value, urls, batchId.value)
-      batchResults.value = data
-    })
+    const urls = batchUrls.value.split('\n').map((u) => u.trim()).filter(Boolean)
+    const data = await ingestService.runBatchIngest(batchSource.value, urls, batchId.value)
+    batchResults.value = data
   } catch (err) {
     console.error('Batch ingest failed:', err)
   } finally {

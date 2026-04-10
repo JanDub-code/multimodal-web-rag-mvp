@@ -5,6 +5,7 @@ import LoginView from '@/views/LoginView.vue'
 import ChatView from '@/views/ChatView.vue'
 import AuditView from '@/views/AuditView.vue'
 import SourcesView from '@/views/SourcesView.vue'
+import IngestView from '@/views/IngestView.vue'
 import SettingsView from '@/views/SettingsView.vue'
 import ExperimentsView from '@/views/ExperimentsView.vue'
 
@@ -32,6 +33,12 @@ const router = createRouter({
       path: '/sources',
       name: 'sources',
       component: SourcesView,
+      meta: { requiresAuth: true, role: 'curator' }
+    },
+    {
+      path: '/ingest',
+      name: 'ingest',
+      component: IngestView,
       meta: { requiresAuth: true, role: 'curator' }
     },
     {

@@ -39,6 +39,20 @@ Aktualni inference backend je OpenAI-compatible API. Vychozi lokalni cil je LM S
 
 Podrobny navod je v `LM_STUDIO_SETUP.md`.
 
+### Prihlaseni (dev)
+
+Login formular obsahuje prepinac uctu:
+- `Admin` (plny pristup)
+- `Curator` (ingest + zdroje)
+- `Analyst` (dotazy + analyza)
+- `User` (dotazy)
+
+### Ingest workflow (UI)
+
+1. Otevri `Sprava zdroju` a pridej zdroj.
+2. Po ulozeni se muzes rovnou prepnout na `Ingest` (automaticky, nebo pres tlacitko `Run ingest` u zdroje).
+3. Na strance `/ingest` zkontroluj predvyplneny zdroj + URL a klikni `Run ingest`.
+
 ## Runtime
 
 Docker stack spousti:

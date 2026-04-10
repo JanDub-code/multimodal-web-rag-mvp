@@ -13,6 +13,7 @@
         <v-list-item v-if="authStore.isAdmin" to="/audit" prepend-icon="mdi-lock-outline" title="Audit" base-color="primary"></v-list-item>
         
         <v-list-item v-if="authStore.isCurator" to="/sources" prepend-icon="mdi-database-outline" title="Správa zdrojů" base-color="primary"></v-list-item>
+        <v-list-item v-if="authStore.isCurator" to="/ingest" prepend-icon="mdi-cloud-upload-outline" title="Ingest" base-color="primary"></v-list-item>
         
         <v-list-item v-if="authStore.isAnalyst" to="/experiments" prepend-icon="mdi-flask-outline" title="Experimenty" base-color="primary"></v-list-item>
         

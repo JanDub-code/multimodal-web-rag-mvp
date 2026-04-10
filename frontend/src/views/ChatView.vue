@@ -35,7 +35,7 @@
         <div class="mb-6">
           <v-btn-toggle v-model="mode" mandatory rounded="xl" density="compact" class="elevation-0 border">
             <v-btn value="rag" :color="mode === 'rag' ? 'primary' : 'transparent'" :class="mode === 'rag' ? 'text-white' : 'text-grey-darken-1'" class="font-weight-bold px-6 text-caption">RAG</v-btn>
-            <v-btn value="norag" :color="mode === 'norag' ? 'primary' : 'transparent'" :class="mode === 'norag' ? 'text-white' : 'text-grey-darken-1'" class="font-weight-bold px-6 text-caption">noRAG</v-btn>
+            <v-btn value="no-rag" :color="mode === 'no-rag' ? 'primary' : 'transparent'" :class="mode === 'no-rag' ? 'text-white' : 'text-grey-darken-1'" class="font-weight-bold px-6 text-caption">noRAG</v-btn>
           </v-btn-toggle>
         </div>
 
@@ -159,6 +159,16 @@ const lastAnswer = computed(() => {
   return assistantMessages[assistantMessages.length - 1];
 })
 
+const formatApiError = (error) => {
+  const detail = error?.response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0]
+    if (first?.msg) return first.msg
+  }
+  return error?.message || 'Neocekavana chyba'
+}
+
 const sendMessage = async () => {
   const text = inputRaw.value.trim()
   if (!text || loading.value) return
@@ -170,7 +180,7 @@ const sendMessage = async () => {
   try {
     const response = await axios.post('/api/query/', {
       query: text,
-      mode: mode.value.toLowerCase(),
+      mode: mode.value,
       top_k: 5
     })
     
@@ -185,7 +195,7 @@ const sendMessage = async () => {
   } catch (error) {
     history.value[activeTopic.value].messages.push({
       role: 'assistant',
-      content: 'Chyba serveru: ' + (error.response?.data?.detail || error.message)
+      content: 'Chyba serveru: ' + formatApiError(error)
     })
   } finally {
     loading.value = false

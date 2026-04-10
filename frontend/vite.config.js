@@ -18,5 +18,12 @@ export default defineConfig({
         changeOrigin: true
       }
     }
+  },
+  css: {
+    preprocessorOptions: {
+      scss: {
+        additionalData: `@use "@/assets/styles/_variables" as *;\n@use "@/assets/styles/_mixins" as *;\n`,
+      },
+    },
   }
 })
