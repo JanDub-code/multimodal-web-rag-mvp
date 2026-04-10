@@ -270,15 +270,17 @@ async function runQuery() {
     await compliance.guardAction('query.execute', async (actionContext) => {
       const operationId = actionContext.operationId
 
-      // If we don't have a session yet, let's create one
+      // Session creation is best-effort. Query execution must not depend on it.
       if (!targetSessionId) {
-        // Snippet out 20 first chars of query for a title
-        const newTitle = text.length > 25 ? text.substring(0, 25) + '...' : text
-        const newSess = await queryService.createSession(newTitle)
-        targetSessionId = newSess.id
-        currentSessionId.value = targetSessionId
-        // Update list
-        sessions.value.unshift(newSess)
+        try {
+          const newTitle = text.length > 25 ? text.substring(0, 25) + '...' : text
+          const newSess = await queryService.createSession(newTitle)
+          targetSessionId = newSess.id
+          currentSessionId.value = targetSessionId
+          sessions.value.unshift(newSess)
+        } catch (sessionErr) {
+          console.warn('Failed to create session before query, proceeding without session:', sessionErr)
+        }
       }
 
       // Execute query
@@ -290,20 +292,32 @@ async function runQuery() {
         targetSessionId,
         actionContext
       )
-      
-      // The API should technically return the updated message or whole session, we are mocking returning the AI message and citations.
-      // Append the AI message into history list
-      if (data.message) {
-        messages.value.push(data.message)
+
+      const assistantMessage = data?.message || {
+        id: `msg-a-${Date.now()}`,
+        role: 'ai',
+        content: data?.answer || 'Žádná odpověď nebyla vygenerována.',
+        citations: Array.isArray(data?.citations) ? data.citations : [],
+        timestamp: new Date().toISOString(),
+        operation_id: data?.operation_id || operationId,
       }
+
+      messages.value.push(assistantMessage)
     })
   } catch (err) {
     const wasCancelled = String(err?.message || '').toLowerCase().includes('cancelled')
     if (wasCancelled) {
       messages.value = messages.value.filter((m) => m.id !== optimisticId)
+      return
     }
+
     console.error('Query failed:', err)
-    // Handle error UI if needed
+    messages.value.push({
+      id: `msg-e-${Date.now()}`,
+      role: 'ai',
+      content: `Chyba serveru: ${formatApiError(err)}`,
+      timestamp: new Date().toISOString(),
+    })
   } finally {
     loading.value = false
     scrollToBottom()
@@ -320,6 +334,16 @@ function scrollToBottom() {
 
 function formatTime(ts) {
   return new Date(ts).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatApiError(error) {
+  const detail = error?.response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0]
+    if (first?.msg) return first.msg
+  }
+  return error?.message || 'Neočekávaná chyba'
 }
 </script>
 
