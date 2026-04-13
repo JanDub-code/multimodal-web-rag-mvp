@@ -2,12 +2,13 @@
 
 Tento projekt je ted nastaveny na OpenAI-compatible backend s defaultem pro LM Studio.
 Vychozi textovy model v projektu je `qwen/qwen3.5-2b`.
+Vychozi vision model v projektu je `qwen/qwen3.5-2b`.
 
 ## 1. Co musi bezet
 
 - LM Studio s aktivnim Local Serverem
 - model `qwen/qwen3.5-2b`
-- pokud chces vision funkce, tak i samostatny multimodalni model pro `LLM_VISION_MODEL`
+- model `qwen/qwen3.5-2b` (pouzity i pro vision)
 
 ## 2. Overeni LM Studio API
 
@@ -43,15 +44,14 @@ Pak v `.env` nastav minimalne toto:
 LLM_BASE_URL=http://127.0.0.1:1234/v1
 LLM_API_KEY=lm-studio
 LLM_MODEL=qwen/qwen3.5-2b
-LLM_VISION_MODEL=
-VISION_ANSWER_ENABLED=false
-VISION_EXTRACT_ON_INGEST=false
+LLM_VISION_MODEL=qwen/qwen3.5-2b
+VISION_ANSWER_ENABLED=true
+VISION_EXTRACT_ON_INGEST=true
 ```
 
 Poznamky:
 - `LLM_API_KEY` muze byt klidne jen placeholder `lm-studio`, pokud v LM Studio nemas zapnutou auth.
-- `LLM_VISION_MODEL` nech prazdny, pokud aktualni model neumi obrazovy vstup.
-- Vision feature zapinej az ve chvili, kdy mas nahrany skutecny multimodalni model.
+- Pokud nechces pouzivat vision, nastav `VISION_ANSWER_ENABLED=false`, `VISION_EXTRACT_ON_INGEST=false` a `LLM_VISION_MODEL` vymaz.
 
 ## 4. Docker runtime
 
@@ -87,10 +87,10 @@ LM Studio se nestartuje z Docker Compose. Musi bezet separatne.
 
 ## 7. Vision rezim
 
-Pokud chces zpracovavat screenshoty pres LLM, nastav multimodalni model:
+Vision rezim je defaultne zapnuty. Pro explicitni nastaveni:
 
 ```env
-LLM_VISION_MODEL=sem_dopln_multimodalni_model
+LLM_VISION_MODEL=qwen/qwen3.5-2b
 VISION_ANSWER_ENABLED=true
 VISION_EXTRACT_ON_INGEST=true
 ```

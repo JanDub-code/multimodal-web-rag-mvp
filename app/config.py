@@ -31,11 +31,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("LLM_MODEL", "OPENAI_MODEL", "OLLAMA_MODEL"),
     )
     llm_vision_model: str | None = Field(
-        default=None,
+        default="qwen/qwen3.5-2b",
         validation_alias=AliasChoices("LLM_VISION_MODEL", "OPENAI_VISION_MODEL", "OLLAMA_VISION_MODEL"),
     )
-    vision_answer_enabled: bool = False
-    vision_extract_on_ingest: bool = False
+    vision_answer_enabled: bool = True
+    vision_extract_on_ingest: bool = True
     vision_max_images: int = 2
     vision_timeout_seconds: int = 90
     vision_prompt_max_context_chars: int = 3000
