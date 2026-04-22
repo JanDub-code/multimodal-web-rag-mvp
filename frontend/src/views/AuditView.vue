@@ -73,14 +73,27 @@ const filters = ref({
   type: 'Vše'
 })
 
+const appliedFilters = ref({ ...filters.value })
+
 const auditData = ref([
-  { id: 1, time: '10:45:12', actor: 'jan.novak', role: 'ADMIN', type: 'THRESHOLD CHANGE', detail: 'změna z 75% -> 80%' },
-  { id: 2, time: '10:45:12', actor: 'eva.curator', role: 'ANALYST', type: 'TEST RUN', detail: 'Spouštěn test ob-8f92' },
-  { id: 3, time: '10:45:12', actor: 'petr.curator', role: 'USER', type: 'LOGIN', detail: 'Login in...' },
-  { id: 4, time: '10:45:12', actor: 'petr.curator', role: 'SYSTEM', type: 'CAPTCHA ERROR', detail: 'URL blocked' }
+  { id: 1, date: '2026-03-11', time: '2026-03-11 10:45:12', actor: 'jan.novak', role: 'ADMIN', type: 'THRESHOLD CHANGE', detail: 'změna z 75% -> 80%' },
+  { id: 2, date: '2026-03-11', time: '2026-03-11 10:45:12', actor: 'eva.curator', role: 'ANALYST', type: 'TEST RUN', detail: 'Spouštěn test ob-8f92' },
+  { id: 3, date: '2026-03-05', time: '2026-03-05 09:30:00', actor: 'petr.curator', role: 'USER', type: 'LOGIN', detail: 'Login in...' },
+  { id: 4, date: '2026-02-20', time: '2026-02-20 16:20:00', actor: 'petr.curator', role: 'SYSTEM', type: 'CAPTCHA ERROR', detail: 'URL blocked' }
 ])
 
-const currentItems = computed(() => auditData.value)
+const currentItems = computed(() => {
+  return auditData.value.filter(item => {
+    const f = appliedFilters.value
+    if (f.role !== 'Všichni' && item.role !== f.role) return false
+    if (f.type !== 'Vše' && item.type !== f.type) return false
+    
+    if (f.dateFrom && item.date < f.dateFrom) return false
+    if (f.dateTo && item.date > f.dateTo) return false
+    
+    return true
+  })
+})
 
 const getRoleColor = (role) => {
   switch (role) {
@@ -103,6 +116,6 @@ const getTypeColor = (type) => {
 }
 
 const filterData = () => {
-  // Mock filter action
+  appliedFilters.value = { ...filters.value }
 }
 </script>
