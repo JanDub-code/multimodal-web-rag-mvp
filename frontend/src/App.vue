@@ -16,7 +16,6 @@
         <v-list density="compact" nav class="mt-4">
           <v-list-item to="/dashboard" prepend-icon="mdi-view-dashboard-outline" title="Dashboard" base-color="primary" />
           <v-list-item to="/chat" prepend-icon="mdi-chat-processing-outline" title="Chat" base-color="primary" />
-          <v-list-item to="/query" prepend-icon="mdi-message-text-outline" title="Query" base-color="primary" />
 
           <v-list-item v-if="authStore.isAdmin" to="/audit" prepend-icon="mdi-lock-outline" title="Audit" base-color="primary" />
 

@@ -62,7 +62,6 @@ const route = useRoute()
 const allItems = [
   { title: 'Dashboard', icon: 'mdi-view-dashboard-outline', path: '/dashboard', roles: ['admin', 'curator', 'analyst', 'user'] },
   { title: 'Chat', icon: 'mdi-chat-plus-outline', path: '/chat', roles: ['admin', 'curator', 'analyst', 'user'] },
-  { title: 'Query', icon: 'mdi-message-text-outline', path: '/query', roles: ['admin', 'curator', 'analyst', 'user'] },
   { title: 'Audit', icon: 'mdi-shield-check-outline', path: '/audit', roles: ['admin'] },
   { title: 'Sources', icon: 'mdi-database-outline', path: '/sources', roles: ['admin', 'curator'] },
   { title: 'Ingest', icon: 'mdi-cloud-upload-outline', path: '/ingest', roles: ['admin', 'curator'] },

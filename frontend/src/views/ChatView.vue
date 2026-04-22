@@ -1,113 +1,172 @@
 <template>
-  <div>
-    <v-container fluid class="pa-6" style="height: calc(100vh - 48px);">
-      <v-row class="h-100 ma-0">
-        <!-- Chat History Sidebar (Left) -->
-        <v-col cols="12" md="3" lg="2" class="d-flex flex-column border-r pr-6 h-100" style="background-color: transparent;">
-          <v-btn color="primary" @click="createNewChat">Novy chat</v-btn>
+  <div class="chat-layout">
+    <!-- Sessions Sidebar -->
+    <v-card 
+      class="chat-sidebar" 
+      :class="{ 'sidebar-mobile-hidden': !showMobileHistory }"
+      elevation="0"
+    >
+      <div class="pa-3 d-none d-md-block">
+        <v-btn color="primary" block prepend-icon="mdi-plus" @click="startNewSession">
+          Nová konverzace
+        </v-btn>
+      </div>
+      <v-divider />
+      <v-list density="compact" nav class="pa-2">
+        <v-list-item
+          v-for="session in sessions"
+          :key="session.id"
+          :title="session.title"
+          :active="currentSessionId === session.id"
+          @click="loadSession(session.id)"
+          rounded="lg"
+          class="mb-1"
+        >
+          <template #prepend>
+            <v-icon size="small">mdi-message-outline</v-icon>
+          </template>
+        </v-list-item>
+        <div v-if="!sessions.length && !loadingSessions" class="text-caption text-center pa-4 text-muted">
+          Žádná historie
+        </div>
+      </v-list>
+    </v-card>
 
-          <div class="text-caption text-grey-darken-1 font-weight-bold my-3 ls-1">Historie</div>
-
-          <v-list density="compact" class="bg-transparent pa-0">
-            <v-list-item
-              v-for="(topic, i) in history"
-              :key="i"
-              class="mb-2 rounded-lg border cursor-pointer"
-              :class="activeTopic === i ? 'bg-primary text-white' : 'bg-white'"
-              elevation="0"
-              @click="switchChat(i)"
-            >
-              <v-list-item-title class="text-body-2 font-weight-medium" :class="activeTopic === i ? 'text-white' : 'text-grey-darken-3'">{{ topic.title }}</v-list-item-title>
-            </v-list-item>
-          </v-list>
-        </v-col>
-
-        <!-- Main Chat Area (Right) -->
-        <v-col cols="12" md="9" lg="10" class="d-flex flex-column h-100 pl-md-8">
-          <!-- Header: Title + Export -->
-          <div class="d-flex align-center justify-space-between mb-4">
-            <h1 class="text-h4 font-weight-bold text-grey-darken-4">Chat</h1>
-            <v-btn color="primary" @click="() => console.log('todo')">Export</v-btn>
-          </div>
-
-          <!-- RAG / noRAG Toggle -->
-          <div class="mb-6">
-            <v-btn-toggle v-model="mode" mandatory rounded="xl" density="compact" class="elevation-0 border">
-              <v-btn value="rag" :color="mode === 'rag' ? 'primary' : 'transparent'" :class="mode === 'rag' ? 'text-white' : 'text-grey-darken-1'" class="font-weight-bold px-6 text-caption">RAG</v-btn>
-              <v-btn value="no-rag" :color="mode === 'no-rag' ? 'primary' : 'transparent'" :class="mode === 'no-rag' ? 'text-white' : 'text-grey-darken-1'" class="font-weight-bold px-6 text-caption">noRAG</v-btn>
-            </v-btn-toggle>
-          </div>
-
-          <!-- Input Box Area -->
-          <v-card class="elevation-0 border rounded-xl bg-grey-lighten-4 pa-4 mb-6 position-relative">
-            <v-textarea
-              v-model="inputRaw"
-              placeholder="Zadejte dotaz..."
-              variant="plain"
+    <!-- Main Chat Area -->
+    <div class="chat-main">
+      <!-- Header -->
+      <div class="chat-header">
+        <!-- Desktop Header -->
+        <div class="d-none d-md-flex justify-space-between align-center w-100">
+          <h2 class="text-h6">{{ currentSessionTitle }}</h2>
+          <div class="d-flex align-center ga-3">
+            <v-select
+              v-model="mode"
+              :items="modeOptions"
+              item-title="label"
+              item-value="value"
+              density="compact"
+              variant="outlined"
               hide-details
-              auto-grow
-              rows="3"
-              class="text-body-1"
-              bg-color="transparent"
-              @keydown.enter.prevent="handleEnter"
-            ></v-textarea>
-
-            <div class="d-flex justify-space-between align-end mt-2">
-              <BaseButton icon="mdi-cog-outline" variant="text" color="grey-darken-1" size="small"></BaseButton>
-
-              <BaseButton
-                color="#1e293b"
-                icon="mdi-send"
-                variant="flat"
-                class="rounded-circle"
-                size="40"
-                :disabled="!inputRaw.trim() || loading"
-                @click="sendMessage"
-              >
-                <v-icon size="small">mdi-play</v-icon>
-              </BaseButton>
-            </div>
-          </v-card>
-
-          <!-- Dynamic Answer Area -->
-          <div class="flex-grow-1" style="overflow-y: auto;">
-            <v-card v-if="loading" class="elevation-0 border rounded-xl bg-grey-lighten-4 pa-6 mb-4 d-flex align-center">
-              <v-progress-circular indeterminate color="primary" size="24" class="mr-4"></v-progress-circular>
-              <span class="text-grey-darken-1 font-weight-medium">Zpracovavam odpoved...</span>
-            </v-card>
-
-            <v-card v-else-if="lastAnswer" class="elevation-0 border rounded-xl bg-grey-lighten-4 pa-6 mb-4">
-              <div class="text-caption font-weight-bold text-grey-darken-1 mb-4 ls-1">ODPOVED</div>
-              <div class="text-body-1 text-grey-darken-3" style="line-height: 1.7; white-space: pre-wrap;">
-                {{ lastAnswer.content }}
-              </div>
-
-              <v-divider class="my-6"></v-divider>
-
-              <div class="text-caption font-weight-bold text-grey-darken-1 mb-4 ls-1">CITACE / DUKAZY</div>
-
-              <div v-if="!lastAnswer.citations || lastAnswer.citations.length === 0" class="text-body-2 text-grey">
-                Nebyly nalezeny zadne citace.
-              </div>
-
-              <v-list v-else bg-color="transparent" density="compact" class="pa-0">
-                <v-list-item v-for="(cit, idx) in lastAnswer.citations" :key="idx" class="px-0 py-2 border-b" :class="{'border-0': idx === lastAnswer.citations.length - 1}">
-                  <template #prepend>
-                    <div class="text-caption font-weight-bold text-grey-darken-1 mr-4">[{{ cit.index || (idx + 1) }}]</div>
-                  </template>
-                  <v-list-item-title class="text-body-2 font-weight-bold text-grey-darken-3">{{ cit.title || cit.url || 'Zdroj' }}</v-list-item-title>
-                  <v-list-item-subtitle class="text-caption text-grey-darken-1 mt-1">{{ cit.date || '2026-03-24' }}</v-list-item-subtitle>
-                  <template #append>
-                    <v-btn icon="mdi-link-variant" variant="text" size="small" color="grey-lighten-1" :href="cit.url || '#'" target="_blank"></v-btn>
-                  </template>
-                </v-list-item>
-              </v-list>
-            </v-card>
+              style="min-width: 180px"
+            />
+            <v-select
+              v-model="topK"
+              :items="[3, 5, 10, 15]"
+              prefix="Top "
+              density="compact"
+              variant="outlined"
+              hide-details
+              style="min-width: 120px"
+            />
           </div>
-        </v-col>
-      </v-row>
-    </v-container>
+        </div>
 
+        <!-- Mobile Header -->
+        <div class="d-flex d-md-none flex-column w-100 ga-3">
+          <div class="d-flex align-center justify-space-between">
+            <v-btn icon="mdi-menu" variant="text" @click="showMobileHistory = !showMobileHistory" />
+            <v-btn color="primary" prepend-icon="mdi-plus" variant="flat" @click="startNewSession" class="text-none">Nová konverzace</v-btn>
+          </div>
+          <div class="d-flex align-center ga-2">
+            <v-select
+              v-model="mode"
+              :items="modeOptions"
+              item-title="label"
+              item-value="value"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="flex-grow-1"
+            />
+            <v-select
+              v-model="topK"
+              :items="[3, 5, 10, 15]"
+              prefix="Top "
+              density="compact"
+              variant="outlined"
+              hide-details
+              style="min-width: 100px"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- Messages Window -->
+      <div class="chat-messages" ref="messagesContainer">
+        <!-- Empty State -->
+        <div v-if="!messages.length" class="empty-state">
+          <v-icon size="64" color="grey-lighten-2" class="mb-4">mdi-forum-outline</v-icon>
+          <h3>Jak vám mohu pomoci?</h3>
+          <p class="text-muted text-center mt-2" style="max-width: 400px">
+            Jsem připraven odpovídat na dotazy na základě dokumentů ve vybraných zdrojích (RAG mód) nebo fungovat jako běžný jazykový model.
+          </p>
+        </div>
+
+        <!-- Message List -->
+        <div 
+          v-for="msg in messages" 
+          :key="msg.id" 
+          :class="['message-wrapper', msg.role === 'user' ? 'message-wrapper--user' : 'message-wrapper--ai']"
+        >
+          <div class="message-bubble">
+            <div class="message-bubble__content">{{ msg.content }}</div>
+            
+            <!-- Citations (AI only) -->
+            <div v-if="msg.citations?.length" class="message-citations">
+              <v-chip 
+                v-for="cit in msg.citations" 
+                :key="cit.index" 
+                color="info" 
+                size="small" 
+                variant="tonal"
+                class="mr-1 mt-2"
+                :href="cit.url"
+                target="_blank"
+              >
+                [{{ cit.index }}] Zdroj
+              </v-chip>
+            </div>
+            
+            <div class="message-bubble__meta text-caption text-disabled mt-1">
+              {{ formatTime(msg.timestamp) }}
+              <span v-if="msg.operation_id" class="ml-2">| op: {{ msg.operation_id }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div v-if="loading" class="message-wrapper message-wrapper--ai my-4">
+           <v-progress-circular indeterminate color="primary" size="24" class="ml-4" />
+        </div>
+      </div>
+
+      <!-- Input Area -->
+      <div class="chat-input-area">
+        <v-textarea
+          v-model="queryText"
+          placeholder="Zadejte svůj dotaz zde..."
+          variant="outlined"
+          rows="1"
+          auto-grow
+          hide-details
+          class="chat-input"
+          @keydown.enter.prevent="runQuery"
+        >
+          <template #append-inner>
+            <v-btn 
+              icon="mdi-send" 
+              variant="text" 
+              color="primary" 
+              :disabled="!queryText.trim() || loading"
+              @click="runQuery"
+            />
+          </template>
+        </v-textarea>
+      </div>
+    </div>
+
+    <!-- Compliance Dialog -->
     <ComplianceDialog
       :model-value="compliance.showDialog.value"
       :action-type="compliance.pendingActionType.value"
@@ -119,112 +178,296 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import axios from 'axios'
+import { ref, onMounted, nextTick, computed } from 'vue'
+import { queryService } from '@/services/queryService'
 import { useCompliance } from '@/composables/useCompliance'
 import ComplianceDialog from '@/components/compliance/ComplianceDialog.vue'
 
-const mode = ref('rag')
-const inputRaw = ref('')
-const loading = ref(false)
 const compliance = useCompliance()
 
-const history = ref([
-  { id: 1, title: 'TOPIC 1', messages: [{ role: 'assistant', content: 'Vysledek pro TOPIC 1' }] },
-  { id: 2, title: 'TOPIC 2', messages: [{ role: 'user', content: 'Dotaz 2' }, { role: 'assistant', content: 'Odpoved pro TOPIC 2' }] },
-])
-const activeTopic = ref(0)
-const messages = computed(() => {
-  return history.value[activeTopic.value]?.messages || []
+// State
+const sessions = ref([])
+const messages = ref([])
+const currentSessionId = ref(null)
+const loadingSessions = ref(true)
+const loading = ref(false)
+const messagesContainer = ref(null)
+const showMobileHistory = ref(false)
+
+// Inputs
+const queryText = ref('')
+const mode = ref('rag')
+const topK = ref(5)
+
+const modeOptions = [
+  { label: 'RAG Mód', value: 'rag' },
+  { label: 'No-RAG Mód', value: 'no-rag' },
+]
+
+const currentSessionTitle = computed(() => {
+  if (currentSessionId.value) {
+    const s = sessions.value.find(s => s.id === currentSessionId.value)
+    return s ? s.title : 'Konverzace'
+  }
+  return 'Nová konverzace'
 })
 
-const createNewChat = () => {
-  const newId = history.value.length + 1
-  history.value.unshift({ id: newId, title: `TOPIC ${newId}`, messages: [] })
-  activeTopic.value = 0
-}
+onMounted(async () => {
+  await loadSessions()
+})
 
-const switchChat = (index) => {
-  activeTopic.value = index
-}
-
-const handleEnter = (e) => {
-  if (!e.shiftKey) {
-    sendMessage()
-  } else {
-    inputRaw.value += '\n'
+async function loadSessions() {
+  loadingSessions.value = true
+  try {
+    const data = await queryService.getSessions()
+    sessions.value = data || []
+  } catch (err) {
+    console.error('Failed to load sessions', err)
+  } finally {
+    loadingSessions.value = false
   }
 }
 
-const lastAnswer = computed(() => {
-  if (messages.value.length === 0) return null
-  const assistantMessages = messages.value.filter((m) => m.role === 'assistant')
-  if (assistantMessages.length === 0) return null
-  return assistantMessages[assistantMessages.length - 1]
-})
+function startNewSession() {
+  currentSessionId.value = null
+  messages.value = []
+  queryText.value = ''
+}
 
-const formatApiError = (error) => {
+async function loadSession(id) {
+  currentSessionId.value = id
+  loading.value = true
+  try {
+    const data = await queryService.getSession(id)
+    messages.value = data.messages || []
+    scrollToBottom()
+  } catch (err) {
+    console.error('Failed to load session details', err)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function runQuery() {
+  const text = queryText.value.trim()
+  if (!text) return
+
+  // Optimistic User Message UI update
+  const optimisticId = `temp-${Date.now()}`
+  messages.value.push({
+    id: optimisticId,
+    role: 'user',
+    content: text,
+    timestamp: new Date().toISOString()
+  })
+  
+  queryText.value = ''
+  scrollToBottom()
+  loading.value = true
+
+  try {
+    let targetSessionId = currentSessionId.value
+    await compliance.guardAction('query.execute', async (actionContext) => {
+      const operationId = actionContext.operationId
+
+      // Session creation is best-effort. Query execution must not depend on it.
+      if (!targetSessionId) {
+        try {
+          const newTitle = text.length > 25 ? text.substring(0, 25) + '...' : text
+          const newSess = await queryService.createSession(newTitle)
+          targetSessionId = newSess.id
+          currentSessionId.value = targetSessionId
+          sessions.value.unshift(newSess)
+        } catch (sessionErr) {
+          console.warn('Failed to create session before query, proceeding without session:', sessionErr)
+        }
+      }
+
+      // Execute query
+      const data = await queryService.query(
+        text,
+        mode.value,
+        topK.value,
+        operationId,
+        targetSessionId,
+        actionContext
+      )
+
+      const assistantMessage = data?.message || {
+        id: `msg-a-${Date.now()}`,
+        role: 'ai',
+        content: data?.answer || 'Žádná odpověď nebyla vygenerována.',
+        citations: Array.isArray(data?.citations) ? data.citations : [],
+        timestamp: new Date().toISOString(),
+        operation_id: data?.operation_id || operationId,
+      }
+
+      messages.value.push(assistantMessage)
+    })
+  } catch (err) {
+    const wasCancelled = String(err?.message || '').toLowerCase().includes('cancelled')
+    if (wasCancelled) {
+      messages.value = messages.value.filter((m) => m.id !== optimisticId)
+      return
+    }
+
+    console.error('Query failed:', err)
+    messages.value.push({
+      id: `msg-e-${Date.now()}`,
+      role: 'ai',
+      content: `Chyba serveru: ${formatApiError(err)}`,
+      timestamp: new Date().toISOString(),
+    })
+  } finally {
+    loading.value = false
+    scrollToBottom()
+  }
+}
+
+function scrollToBottom() {
+  nextTick(() => {
+    if (messagesContainer.value) {
+      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+    }
+  })
+}
+
+function formatTime(ts) {
+  return new Date(ts).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatApiError(error) {
   const detail = error?.response?.data?.detail
   if (typeof detail === 'string') return detail
   if (Array.isArray(detail) && detail.length > 0) {
     const first = detail[0]
     if (first?.msg) return first.msg
   }
-  return error?.message || 'Neocekavana chyba'
-}
-
-const sendMessage = async () => {
-  const text = inputRaw.value.trim()
-  if (!text || loading.value) return
-
-  const userMessage = { role: 'user', content: text }
-  history.value[activeTopic.value].messages.push(userMessage)
-  inputRaw.value = ''
-  loading.value = true
-
-  try {
-    await compliance.guardAction('query.execute', async (actionContext) => {
-      const response = await axios.post('/api/query/', {
-        query: text,
-        mode: mode.value,
-        top_k: 5,
-        operation_id: actionContext.operationId,
-        compliance_confirmed: actionContext.complianceConfirmed,
-        compliance_bypassed: actionContext.complianceBypassed,
-        compliance_reason: actionContext.complianceReason,
-      })
-
-      const cits = response.data.citations || []
-      history.value[activeTopic.value].messages.push({
-        role: 'assistant',
-        content: response.data.answer || 'Zadna odpoved nebyla vygenerovana.',
-        citations: cits,
-      })
-    })
-  } catch (error) {
-    const wasCancelled = String(error?.message || '').toLowerCase().includes('cancelled')
-    if (wasCancelled) {
-      const msgs = history.value[activeTopic.value].messages
-      const idx = msgs.indexOf(userMessage)
-      if (idx >= 0) msgs.splice(idx, 1)
-      return
-    }
-
-    history.value[activeTopic.value].messages.push({
-      role: 'assistant',
-      content: 'Chyba serveru: ' + formatApiError(error),
-    })
-  } finally {
-    loading.value = false
-  }
+  return error?.message || 'Neočekávaná chyba'
 }
 </script>
 
-<style scoped>
-.ls-1 {
-  letter-spacing: 0.05em;
+<style lang="scss" scoped>
+@use '@/assets/styles/variables' as *;
+
+.chat-layout {
+  display: flex;
+  height: calc(100vh - #{$toolbar-height} - 48px);
+  gap: $space-base;
+  
+  @media (max-width: 768px) {
+    flex-direction: column;
+    height: auto;
+    min-height: calc(100vh - #{$toolbar-height} - 48px);
+  }
 }
-.v-btn-toggle .v-btn {
-  border: none !important;
+
+.chat-sidebar {
+  width: 250px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid $border-color !important;
+  background: $bg-sidebar;
+  
+  @media (max-width: 768px) {
+    width: 100%;
+    max-height: 250px;
+    z-index: 10;
+    
+    &.sidebar-mobile-hidden {
+      display: none !important;
+    }
+  }
+}
+
+.chat-main {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  background: $bg-card;
+  border-radius: $border-radius-lg;
+  border: 1px solid $border-color;
+  box-shadow: $shadow-card;
+  overflow: hidden;
+}
+
+.chat-header {
+  padding: $space-base $space-lg;
+  border-bottom: 1px solid $border-light;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chat-messages {
+  flex-grow: 1;
+  padding: $space-lg;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: $space-md;
+
+  .empty-state {
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+  }
+}
+
+.message-wrapper {
+  display: flex;
+  width: 100%;
+  
+  &--user {
+    justify-content: flex-end;
+    
+    .message-bubble {
+      background: $primary;
+      color: white;
+      border-bottom-right-radius: 4px;
+
+      &__meta {
+        color: rgba(255, 255, 255, 0.7) !important;
+      }
+    }
+  }
+
+  &--ai {
+    justify-content: flex-start;
+    
+    .message-bubble {
+      background: $bg-body;
+      border: 1px solid $border-color;
+      border-bottom-left-radius: 4px;
+    }
+  }
+}
+
+.message-bubble {
+  max-width: 75%;
+  padding: $space-md;
+  border-radius: $border-radius-lg;
+  font-size: $font-size-base;
+  line-height: 1.5;
+  white-space: pre-wrap;
+
+  &__content {
+    word-break: break-word;
+  }
+}
+
+.chat-input-area {
+  padding: $space-md $space-lg;
+  border-top: 1px solid $border-light;
+  background: $bg-body;
+
+  .chat-input {
+    background: white;
+    border-radius: $border-radius-lg;
+  }
 }
 </style>

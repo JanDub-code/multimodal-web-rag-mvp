@@ -4,7 +4,6 @@ import { useAuthStore } from '@/store/auth'
 import LoginView from '@/views/LoginView.vue'
 import DashboardView from '@/views/DashboardView.vue'
 import ChatView from '@/views/ChatView.vue'
-import QueryView from '@/views/QueryView.vue'
 import AuditView from '@/views/AuditView.vue'
 import SourcesView from '@/views/SourcesView.vue'
 import IngestView from '@/views/IngestView.vue'
@@ -34,12 +33,6 @@ const router = createRouter({
       path: '/chat',
       name: 'chat',
       component: ChatView,
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/query',
-      name: 'query',
-      component: QueryView,
       meta: { requiresAuth: true },
     },
     {
