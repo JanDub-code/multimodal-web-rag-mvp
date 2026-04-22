@@ -19,12 +19,12 @@
         
         <div style="width: 200px" class="mr-4">
           <div class="text-caption font-weight-medium mb-1">Oprávnění</div>
-          <v-select :items="['Všichni', 'ADMIN', 'ANALYST', 'USER', 'SYSTEM']" v-model="filters.role" variant="outlined" density="compact" hide-details></v-select>
+          <v-select :items="uniqueRoles" v-model="filters.role" variant="outlined" density="compact" hide-details></v-select>
         </div>
         
         <div style="width: 200px" class="mr-4">
           <div class="text-caption font-weight-medium mb-1">Typ události</div>
-          <v-select :items="['Vše', 'THRESHOLD CHANGE', 'TEST RUN', 'LOGIN', 'CAPTCHA ERROR']" v-model="filters.type" variant="outlined" density="compact" hide-details></v-select>
+          <v-select :items="uniqueTypes" v-model="filters.type" variant="outlined" density="compact" hide-details></v-select>
         </div>
 
         <div class="mt-5">
@@ -47,13 +47,13 @@
         </thead>
         <tbody>
           <tr v-for="item in currentItems" :key="item.id">
-            <td class="py-3">{{ item.time }}</td>
+            <td class="py-3">{{ formatTime(item.ts) }}</td>
             <td class="py-3">{{ item.actor }}</td>
             <td class="py-3">
               <v-chip :color="getRoleColor(item.role)" size="small" class="font-weight-bold" label>{{ item.role }}</v-chip>
             </td>
             <td class="py-3">
-              <v-chip :color="getTypeColor(item.type)" size="small" class="font-weight-medium" variant="tonal">{{ item.type }}</v-chip>
+              <v-chip :color="getTypeColor(item.event_type)" size="small" class="font-weight-medium" variant="tonal">{{ item.event_type }}</v-chip>
             </td>
             <td class="py-3">{{ item.detail }}</td>
           </tr>
@@ -64,53 +64,92 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { auditService } from '@/services/auditService'
 
 const filters = ref({
-  dateFrom: '2026-03-01',
-  dateTo: '2026-03-11',
+  dateFrom: '',
+  dateTo: '',
   role: 'Všichni',
   type: 'Vše'
 })
 
 const appliedFilters = ref({ ...filters.value })
 
-const auditData = ref([
-  { id: 1, date: '2026-03-11', time: '2026-03-11 10:45:12', actor: 'jan.novak', role: 'ADMIN', type: 'THRESHOLD CHANGE', detail: 'změna z 75% -> 80%' },
-  { id: 2, date: '2026-03-11', time: '2026-03-11 10:45:12', actor: 'eva.curator', role: 'ANALYST', type: 'TEST RUN', detail: 'Spouštěn test ob-8f92' },
-  { id: 3, date: '2026-03-05', time: '2026-03-05 09:30:00', actor: 'petr.curator', role: 'USER', type: 'LOGIN', detail: 'Login in...' },
-  { id: 4, date: '2026-02-20', time: '2026-02-20 16:20:00', actor: 'petr.curator', role: 'SYSTEM', type: 'CAPTCHA ERROR', detail: 'URL blocked' }
-])
+const auditData = ref([])
+
+const predefinedTypes = ['THRESHOLD CHANGE', 'TEST RUN', 'LOGIN', 'CAPTCHA ERROR', 'COMPLIANCE CONFIRM', 'INGEST', 'QUERY']
+const uniqueTypes = computed(() => {
+  const types = new Set([
+    ...predefinedTypes,
+    ...auditData.value.map(item => item.event_type?.toUpperCase()).filter(Boolean)
+  ])
+  return ['Vše', ...Array.from(types).sort()]
+})
+
+const predefinedRoles = ['ADMIN', 'ANALYST', 'USER', 'CURATOR', 'SYSTEM']
+const uniqueRoles = computed(() => {
+  const roles = new Set([
+    ...predefinedRoles,
+    ...auditData.value.map(item => item.role?.toUpperCase()).filter(Boolean)
+  ])
+  return ['Všichni', ...Array.from(roles).sort()]
+})
+
+const loadData = async () => {
+  try {
+    const logs = await auditService.getAuditLogs()
+    auditData.value = logs || []
+  } catch (err) {
+    console.error('Failed to load audit logs:', err)
+  }
+}
+
+onMounted(() => {
+  loadData()
+})
 
 const currentItems = computed(() => {
   return auditData.value.filter(item => {
     const f = appliedFilters.value
-    if (f.role !== 'Všichni' && item.role !== f.role) return false
-    if (f.type !== 'Vše' && item.type !== f.type) return false
+    if (f.role !== 'Všichni' && item.role?.toUpperCase() !== f.role.toUpperCase() && item.role !== f.role) return false
+    if (f.type !== 'Vše' && item.event_type?.toUpperCase() !== f.type.toUpperCase() && item.event_type !== f.type) return false
     
-    if (f.dateFrom && item.date < f.dateFrom) return false
-    if (f.dateTo && item.date > f.dateTo) return false
+    if (f.dateFrom && item.ts < f.dateFrom) return false
+    if (f.dateTo && item.ts.substring(0, 10) > f.dateTo) return false
     
     return true
   })
 })
 
+function formatTime(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  return d.toLocaleString('cs-CZ', { hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
 const getRoleColor = (role) => {
-  switch (role) {
+  if (!role) return 'grey'
+  switch (role.toUpperCase()) {
     case 'ADMIN': return 'error'
     case 'ANALYST': return 'accent'
     case 'USER': return 'info'
+    case 'CURATOR': return 'warning'
     case 'SYSTEM': return 'red-darken-4'
     default: return 'grey'
   }
 }
 
 const getTypeColor = (type) => {
-  switch (type) {
+  if (!type) return 'grey'
+  switch (type.toUpperCase()) {
     case 'THRESHOLD CHANGE': return 'warning'
     case 'TEST RUN': return 'accent'
     case 'LOGIN': return 'info'
     case 'CAPTCHA ERROR': return 'error'
+    case 'COMPLIANCE CONFIRM': return 'success'
+    case 'INGEST': return 'primary'
+    case 'QUERY': return 'secondary'
     default: return 'grey'
   }
 }
