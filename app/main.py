@@ -43,8 +43,9 @@ def _check_qdrant() -> dict:
 
         get_qdrant().get_collections()
         return {"status": "up"}
-    except Exception as exc:
-        return {"status": "down", "error": str(exc)}
+    except Exception:
+        logger.exception("Qdrant health check failed")
+        return {"status": "down", "error": "internal_error"}
 
 
 def _check_postgres() -> dict:
@@ -52,8 +53,9 @@ def _check_postgres() -> dict:
         with engine.connect() as conn:
             conn.execute(sa_text("SELECT 1"))
         return {"status": "up"}
-    except Exception as exc:
-        return {"status": "down", "error": str(exc)}
+    except Exception:
+        logger.exception("Postgres health check failed")
+        return {"status": "down", "error": "internal_error"}
 
 
 def _check_llm_backend() -> dict:
