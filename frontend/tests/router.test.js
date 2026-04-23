@@ -14,7 +14,6 @@ describe('Router RBAC Guards', () => {
   const ROUTE_ROLES = {
     '/dashboard': ['Admin', 'Curator', 'Analyst', 'User'],
     '/chat': ['Admin', 'Curator', 'Analyst', 'User'],
-    '/query': ['Admin', 'Curator', 'Analyst', 'User'],
     '/audit': ['Admin'],
     '/sources': ['Admin', 'Curator'],
     '/settings': ['Admin'],
