@@ -15,9 +15,15 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://app:app@localhost:5432/multimodal_mvp"
     qdrant_url: str = "http://localhost:6333"
-    qdrant_collection: str = "chunks"
+    qdrant_collection: str = "chunks_qwen3_embedding_8b_4096"
 
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_base_url: str = Field(
+        default="http://127.0.0.1:11434",
+        validation_alias=AliasChoices("EMBEDDING_BASE_URL", "OLLAMA_EMBEDDING_BASE_URL"),
+    )
+    embedding_model: str = "qwen3-embedding:8b"
+    embedding_dimensions: int = 4096
+    embedding_timeout_seconds: int = 60
     llm_base_url: str = Field(
         default="http://127.0.0.1:1234/v1",
         validation_alias=AliasChoices("LLM_BASE_URL", "OPENAI_BASE_URL", "OLLAMA_URL"),

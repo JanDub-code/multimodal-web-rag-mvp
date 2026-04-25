@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.db.models import User
+from app.db.models import Source, User
 from app.db.session import get_db
 from app.db.session import Base
 from app.api import routes_auth
@@ -31,6 +31,15 @@ def db_session():
     finally:
         db.close()
         Base.metadata.drop_all(engine)
+
+
+@pytest.fixture()
+def source(db_session):
+    row = Source(name="Example", base_url="https://example.com", permission_type="public")
+    db_session.add(row)
+    db_session.commit()
+    db_session.refresh(row)
+    return row
 
 
 @pytest.fixture()

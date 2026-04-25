@@ -17,6 +17,7 @@ from app.db.models import Chunk, Document, Embedding, Evidence, IngestJob, Sourc
 from app.services.chunking import chunk_sections
 from app.services.extract import persist_canonical_document_for_key, to_canonical_document
 from app.services.incidents import detect_captcha_heuristic, log_captcha_incident, log_ingest_incident
+from app.services.model_usage import ingest_model_usage
 from app.services.multimodal import extract_structured_document_from_image, llm_chat_generate
 from app.services.retrieval import delete_vectors_by_chunk_ids, upsert_chunk_vectors
 from app.services.url_safety import SafeSession, UnsafeUrlError, validate_public_url
@@ -382,6 +383,7 @@ def run_ingest(db: Session, source_id: int, url: str) -> dict:
                 "document_id": None,
                 "evidence_ids": evidence_ids,
                 "incident_id": incident_id,
+                "model_usage": ingest_model_usage(embedding_used=False, vision_used=False),
             }
 
         _cleanup_old_document(db, source_id, url)
@@ -461,6 +463,11 @@ def run_ingest(db: Session, source_id: int, url: str) -> dict:
             "document_id": document.id,
             "evidence_ids": evidence_ids,
             "incident_id": incident_id,
+            "model_usage": ingest_model_usage(
+                embedding_used=True,
+                vision_used=vision_used,
+                vision_model=vision_model,
+            ),
         }
 
     except Exception as exc:
@@ -498,4 +505,3 @@ def run_ingest(db: Session, source_id: int, url: str) -> dict:
         except Exception:
             logger.exception("Failed to update job status to 'failed'")
         raise
-

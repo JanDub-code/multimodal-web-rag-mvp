@@ -7,6 +7,7 @@ from functools import lru_cache
 from typing import Any
 
 from app.config import get_settings
+from app.services.embeddings import embed_texts
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -139,12 +140,38 @@ def _vector_to_list(vector: Any) -> list[float]:
     return list(vector)
 
 
-@lru_cache
-def get_embedder() -> Any:
-    from sentence_transformers import SentenceTransformer
+class QdrantVectorSizeMismatchError(RuntimeError):
+    pass
 
-    logger.info("Loading embedding model: %s", settings.embedding_model)
-    return SentenceTransformer(settings.embedding_model)
+
+def _extract_collection_vector_size(collection_info: Any) -> int | None:
+    config = getattr(collection_info, "config", None)
+    params = getattr(config, "params", None)
+    vectors_config = getattr(params, "vectors", None)
+
+    if vectors_config is None and isinstance(collection_info, dict):
+        vectors_config = (
+            collection_info.get("config", {})
+            .get("params", {})
+            .get("vectors")
+        )
+
+    if vectors_config is None:
+        return None
+
+    if isinstance(vectors_config, dict):
+        if "size" in vectors_config:
+            return int(vectors_config["size"])
+        for value in vectors_config.values():
+            if isinstance(value, dict) and "size" in value:
+                return int(value["size"])
+            size = getattr(value, "size", None)
+            if size is not None:
+                return int(size)
+        return None
+
+    size = getattr(vectors_config, "size", None)
+    return int(size) if size is not None else None
 
 
 @lru_cache
@@ -154,15 +181,25 @@ def get_qdrant() -> Any:
     return QdrantClient(url=settings.qdrant_url)
 
 
-def ensure_collection(vector_size: int) -> None:
-    from qdrant_client.http import models as qmodels
-
+def ensure_collection(vector_size: int, collection_name: str | None = None) -> None:
+    collection = collection_name or settings.qdrant_collection
     client = get_qdrant()
     existing = [c.name for c in client.get_collections().collections]
-    if settings.qdrant_collection in existing:
+    if collection in existing:
+        collection_info = client.get_collection(collection_name=collection)
+        existing_size = _extract_collection_vector_size(collection_info)
+        if existing_size is not None and existing_size != vector_size:
+            raise QdrantVectorSizeMismatchError(
+                f"Qdrant collection '{collection}' has vector size {existing_size}, "
+                f"but embedding model '{settings.embedding_model}' returned size {vector_size}. "
+                "Use a new QDRANT_COLLECTION value or reingest data into a collection with matching dimensions."
+            )
         return
+
+    from qdrant_client.http import models as qmodels
+
     client.create_collection(
-        collection_name=settings.qdrant_collection,
+        collection_name=collection,
         vectors_config=qmodels.VectorParams(size=vector_size, distance=qmodels.Distance.COSINE),
     )
 
@@ -172,8 +209,7 @@ def upsert_chunk_vectors(rows: list[dict]) -> None:
 
     if not rows:
         return
-    model = get_embedder()
-    vectors = model.encode([r["text"] for r in rows], normalize_embeddings=True)
+    vectors = embed_texts([r["text"] for r in rows])
     ensure_collection(vector_size=len(vectors[0]))
     points = []
     for idx, row in enumerate(rows):
@@ -189,6 +225,8 @@ def upsert_chunk_vectors(rows: list[dict]) -> None:
                     "text": row["text"],
                     "chunk_type": row.get("chunk_type", "text"),
                     "citations_ref": row["citations_ref"],
+                    "embedding_model": settings.embedding_model,
+                    "embedding_dimensions": len(vectors[idx]),
                 },
             )
         )
@@ -222,8 +260,7 @@ def search_top_k(query: str, top_k: int = 5, min_score: float | None = None) -> 
     if min_score is None:
         min_score = settings.retrieval_min_score
 
-    model = get_embedder()
-    query_vec = _vector_to_list(model.encode([query], normalize_embeddings=True)[0])
+    query_vec = _vector_to_list(embed_texts([query])[0])
     raw_limit = max(top_k * 5, top_k)
     try:
         hits = get_qdrant().search(

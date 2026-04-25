@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.services.audit import write_audit
 from app.services.compliance import resolve_sensitive_action_compliance
 from app.services.ingest import run_ingest
+from app.services.model_usage import ingest_model_usage
 from app.services.url_safety import UnsafeUrlError, validate_public_url
 
 logger = logging.getLogger(__name__)
@@ -161,6 +162,7 @@ def ingest_url(
         result = run_ingest(db=db, source_id=payload.source_id, url=payload.url)
     except Exception as exc:
         logger.exception("Ingest failed for source %d", payload.source_id)
+        model_usage = ingest_model_usage(embedding_used=False, vision_used=None)
         write_audit(
             db,
             action="ingest.failed",
@@ -174,6 +176,7 @@ def ingest_url(
                 "compliance_confirmed": compliance.compliance_confirmed,
                 "compliance_bypassed": compliance.compliance_bypassed,
                 "compliance_reason": compliance.compliance_reason,
+                "model_usage": model_usage,
             },
         )
         try:
@@ -183,6 +186,10 @@ def ingest_url(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     action = "ingest.blocked" if result.get("status") == "blocked_captcha" else "ingest.completed"
+    model_usage = result.get("model_usage") or ingest_model_usage(
+        embedding_used=result.get("status") == "completed",
+        vision_used=None,
+    )
     write_audit(
         db,
         action=action,
@@ -196,6 +203,7 @@ def ingest_url(
             "compliance_confirmed": compliance.compliance_confirmed,
             "compliance_bypassed": compliance.compliance_bypassed,
             "compliance_reason": compliance.compliance_reason,
+            "model_usage": model_usage,
         },
     )
     db.commit()
@@ -207,4 +215,5 @@ def ingest_url(
         "compliance_confirmed": compliance.compliance_confirmed,
         "compliance_bypassed": compliance.compliance_bypassed,
         "compliance_reason": compliance.compliance_reason,
+        "model_usage": model_usage,
     }

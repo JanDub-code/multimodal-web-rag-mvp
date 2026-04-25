@@ -10,6 +10,7 @@ from app.db.session import get_db
 from app.services.answering import answer_no_rag, answer_rag
 from app.services.audit import write_audit
 from app.services.compliance import resolve_sensitive_action_compliance
+from app.services.model_usage import query_model_usage
 from app.services.retrieval import search_top_k
 
 
@@ -49,14 +50,17 @@ def ask(
 
     if payload.mode == QueryMode.no_rag:
         answer = answer_no_rag(payload.query, db=db, user_id=user.id)
+        model_usage = query_model_usage(mode=QueryMode.no_rag.value)
         response = {
             "mode": QueryMode.no_rag.value,
             "answer": answer,
             "citations": [],
+            "model_usage": model_usage,
         }
     else:
         retrieved = search_top_k(payload.query, top_k=payload.top_k)
         rag = answer_rag(payload.query, retrieved, db=db, user_id=user.id)
+        model_usage = rag.get("model_usage") or query_model_usage(mode=QueryMode.rag.value)
         response = {"mode": QueryMode.rag.value, **rag}
 
     write_audit(
@@ -71,6 +75,7 @@ def ask(
             "compliance_confirmed": compliance.compliance_confirmed,
             "compliance_bypassed": compliance.compliance_bypassed,
             "compliance_reason": compliance.compliance_reason,
+            "model_usage": model_usage,
         },
     )
     db.commit()

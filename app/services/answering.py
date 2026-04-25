@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.services.audit import write_audit
+from app.services.model_usage import query_model_usage
 from app.services.multimodal import llm_chat_generate
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,7 @@ def answer_rag(query: str, retrieved: list[dict], db: Session | None = None, use
         return {
             "answer": "No relevant documents found for this query.",
             "citations": [],
+            "model_usage": query_model_usage(mode="rag", generation_model=None, vision_used=False),
         }
 
     context_lines = []
@@ -133,5 +135,10 @@ def answer_rag(query: str, retrieved: list[dict], db: Session | None = None, use
         return {
             "answer": _LLM_UNAVAILABLE_MSG.format(model_name),
             "citations": citations,
+            "model_usage": query_model_usage(mode="rag", generation_model=model_name, vision_used=bool(image_paths)),
         }
-    return {"answer": model_output.strip(), "citations": citations}
+    return {
+        "answer": model_output.strip(),
+        "citations": citations,
+        "model_usage": query_model_usage(mode="rag", generation_model=model_name, vision_used=bool(image_paths)),
+    }

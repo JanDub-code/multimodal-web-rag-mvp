@@ -5,20 +5,11 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from app.api import routes_compliance, routes_ingest, routes_query
-from app.db.models import AuditLog, Chunk, Document, Incident, IngestJob, RefreshToken, Source
+from app.api import routes_compliance, routes_ingest, routes_query, routes_runtime
+from app.db.models import AuditLog, Chunk, Document, Incident, IngestJob, RefreshToken
 from app import main as app_main
-from app.services import answering, compliance, extract, incidents, ingest, retrieval, url_safety
+from app.services import answering, compliance, embeddings, extract, incidents, ingest, retrieval, url_safety
 from app.services.request_context import reset_request_id, set_request_id
-
-
-@pytest.fixture()
-def source(db_session):
-    row = Source(name="Example", base_url="https://example.com", permission_type="public")
-    db_session.add(row)
-    db_session.commit()
-    db_session.refresh(row)
-    return row
 
 
 def _patch_ingest_runtime(monkeypatch, temp_evidence_dirs):
@@ -313,6 +304,7 @@ def test_ask_no_rag_mode_returns_direct_answer(monkeypatch, db_session):
     assert response["operation_id"].startswith("op-")
     assert response["compliance_bypassed"] is True
     assert response["compliance_confirmed"] is False
+    assert response["model_usage"]["text"]["model"] == routes_query.query_model_usage(mode="no-rag")["text"]["model"]
 
 
 def test_answer_no_rag_writes_model_call_audit(monkeypatch, db_session):
@@ -414,12 +406,9 @@ def test_log_ingest_incident_includes_request_id(db_session, source):
 
 
 def test_search_top_k_applies_threshold(monkeypatch):
-    class DummyEmbedder:
-        def encode(self, texts, normalize_embeddings=True):
-            return [[0.1, 0.2, 0.3]]
-
     class Hit:
         def __init__(self, score, payload):
+            self.id = payload.get("chunk_id", 1)
             self.score = score
             self.payload = payload
 
@@ -430,13 +419,113 @@ def test_search_top_k_applies_threshold(monkeypatch):
                 Hit(0.12, {"text": "drop", "url": "https://example.com/low", "citations_ref": json.dumps({"evidence_ids": [2]})}),
             ]
 
-    monkeypatch.setattr(retrieval, "get_embedder", lambda: DummyEmbedder())
+    monkeypatch.setattr(retrieval, "embed_texts", lambda texts: [[0.1, 0.2, 0.3]])
     monkeypatch.setattr(retrieval, "get_qdrant", lambda: DummyQdrant())
 
     results = retrieval.search_top_k("question", top_k=5, min_score=0.5)
 
     assert len(results) == 1
     assert results[0]["text"] == "keep"
+
+
+def test_embed_texts_posts_batch_to_ollama(monkeypatch):
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"embeddings": [[0.1, 0.2], [0.3, 0.4]]}
+
+    def fake_post(url, json, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(embeddings.settings, "embedding_base_url", "http://ollama:11434")
+    monkeypatch.setattr(embeddings.settings, "embedding_model", "qwen3-embedding:8b")
+    monkeypatch.setattr(embeddings.settings, "embedding_dimensions", 4096)
+    monkeypatch.setattr(embeddings.requests, "post", fake_post)
+
+    vectors = embeddings.embed_texts(["a", "b"])
+
+    assert vectors == [[0.1, 0.2], [0.3, 0.4]]
+    assert captured["url"] == "http://ollama:11434/api/embed"
+    assert captured["json"]["model"] == "qwen3-embedding:8b"
+    assert captured["json"]["input"] == ["a", "b"]
+    assert captured["json"]["dimensions"] == 4096
+
+
+def test_embed_texts_rejects_mismatched_response_count(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"embeddings": [[0.1, 0.2]]}
+
+    monkeypatch.setattr(embeddings.requests, "post", lambda *args, **kwargs: Response())
+
+    with pytest.raises(embeddings.EmbeddingBackendError) as exc_info:
+        embeddings.embed_texts(["a", "b"])
+
+    assert "returned 1 vectors for 2 inputs" in str(exc_info.value)
+
+
+def test_embed_texts_wraps_http_errors(monkeypatch):
+    class Response:
+        status_code = 500
+        text = "backend failed"
+
+        def raise_for_status(self):
+            raise embeddings.requests.HTTPError(response=self)
+
+    monkeypatch.setattr(embeddings.requests, "post", lambda *args, **kwargs: Response())
+
+    with pytest.raises(embeddings.EmbeddingBackendError) as exc_info:
+        embeddings.embed_texts(["a"])
+
+    assert "status 500" in str(exc_info.value)
+    assert "backend failed" in str(exc_info.value)
+
+
+def test_ensure_collection_rejects_existing_dimension_mismatch(monkeypatch):
+    class ExistingCollection:
+        name = "chunks_qwen3_embedding_8b_4096"
+
+    class Collections:
+        collections = [ExistingCollection()]
+
+    class Vectors:
+        size = 384
+
+    class Params:
+        vectors = Vectors()
+
+    class Config:
+        params = Params()
+
+    class CollectionInfo:
+        config = Config()
+
+    class DummyQdrant:
+        def get_collections(self):
+            return Collections()
+
+        def get_collection(self, collection_name):
+            return CollectionInfo()
+
+    monkeypatch.setattr(retrieval.settings, "qdrant_collection", "chunks_qwen3_embedding_8b_4096")
+    monkeypatch.setattr(retrieval.settings, "embedding_model", "qwen3-embedding:8b")
+    monkeypatch.setattr(retrieval, "get_qdrant", lambda: DummyQdrant())
+
+    with pytest.raises(retrieval.QdrantVectorSizeMismatchError) as exc_info:
+        retrieval.ensure_collection(vector_size=4096)
+
+    assert "has vector size 384" in str(exc_info.value)
+    assert "Use a new QDRANT_COLLECTION" in str(exc_info.value)
 
 
 def test_rerank_prefers_lexical_match_and_deduplicates_by_document():
@@ -498,6 +587,7 @@ def test_rag_mode_returns_no_results_message(monkeypatch, db_session):
     assert response["mode"] == "rag"
     assert response["citations"] == []
     assert response["answer"] == "No relevant documents found for this query."
+    assert response["model_usage"]["embedding"]["model"] == routes_query.query_model_usage(mode="rag")["embedding"]["model"]
     assert response["operation_id"].startswith("op-")
     assert response["compliance_bypassed"] is True
 
@@ -580,6 +670,17 @@ def test_ingest_generates_operation_id_and_bypasses_in_dev_mode(monkeypatch, db_
     assert response["operation_id"].startswith("op-")
     assert response["compliance_confirmed"] is False
     assert response["compliance_bypassed"] is True
+    assert response["model_usage"]["embedding"]["model"] == routes_ingest.ingest_model_usage()["embedding"]["model"]
+
+
+def test_runtime_models_endpoint_reports_configured_models():
+    user = SimpleNamespace(id=1, role="Admin")
+
+    response = routes_runtime.runtime_models(user=user)
+
+    assert response["text"]["model"] == routes_runtime.configured_model_usage()["text"]["model"]
+    assert response["embedding"]["provider"] == "ollama"
+    assert response["embedding"]["model"] == "qwen3-embedding:8b"
 
 
 def test_compliance_history_returns_entries_from_audit(db_session, user_factory):
@@ -740,4 +841,3 @@ def test_logout_revokes_refresh_token(api_client, db_session, user_factory):
 
     refresh_after_logout = api_client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
     assert refresh_after_logout.status_code == 401
-

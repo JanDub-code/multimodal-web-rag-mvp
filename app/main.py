@@ -14,6 +14,7 @@ from app.api.routes_auth import router as auth_router
 from app.api.routes_compliance import router as compliance_router
 from app.api.routes_ingest import router as ingest_router
 from app.api.routes_query import router as query_router
+from app.api.routes_runtime import router as runtime_router
 from app.config import get_settings
 from app.db.session import engine
 from app.services.multimodal import build_llm_headers, resolve_llm_base_url
@@ -109,6 +110,7 @@ app.include_router(auth_router)
 app.include_router(ingest_router)
 app.include_router(query_router)
 app.include_router(compliance_router)
+app.include_router(runtime_router)
 
 
 @app.get("/health")

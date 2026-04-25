@@ -36,6 +36,7 @@
       DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/multimodal_mvp
       QDRANT_URL: http://qdrant:6333
       LLM_BASE_URL: ${DOCKER_LLM_BASE_URL:-http://host.docker.internal:1234/v1}
+      EMBEDDING_BASE_URL: ${DOCKER_EMBEDDING_BASE_URL:-http://host.docker.internal:11434}
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,6 +55,7 @@
       DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/multimodal_mvp
       QDRANT_URL: http://qdrant:6333
       LLM_BASE_URL: ${DOCKER_LLM_BASE_URL:-http://host.docker.internal:1234/v1}
+      EMBEDDING_BASE_URL: ${DOCKER_EMBEDDING_BASE_URL:-http://host.docker.internal:11434}
     depends_on:
       postgres:
         condition: service_healthy

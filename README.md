@@ -4,7 +4,9 @@ Lokalni MVP pro ingest webovych stranek a dotazovani ve dvou rezimech:
 - `rag`: retrieval z Qdrantu + odpoved s citacemi
 - `no-rag`: prime volani LLM bez retrieval kroku
 
-Aktualni inference backend je OpenAI-compatible API. Vychozi lokalni cil je LM Studio na `http://127.0.0.1:1234/v1` s textovym i vision modelem `qwen/qwen3.5-2b`.
+Aktualni inference backend pro text a vision je OpenAI-compatible API. Vychozi lokalni cil je LM Studio na `http://127.0.0.1:1234/v1` s textovym i vision modelem `qwen/qwen3.5-2b`.
+
+Embedding backend je samostatna Ollama instance na `http://127.0.0.1:11434` s default modelem `qwen3-embedding:8b`.
 
 ## Architektonicka realita
 
@@ -12,7 +14,8 @@ Aktualni inference backend je OpenAI-compatible API. Vychozi lokalni cil je LM S
 - PostgreSQL pro metadata, auth, audit, ingest a incidenty
 - Qdrant pro embeddingy a retrieval
 - evidence artefakty v `./data/evidence`
-- LM Studio nebo jiny OpenAI-compatible backend jako inference vrstva
+- LM Studio nebo jiny OpenAI-compatible backend jako text/vision inference vrstva
+- Ollama jako embedding backend
 - Alembic migrace pres compose sluzbu `migrate`
 
 ## Co je implementovano
@@ -30,9 +33,14 @@ Aktualni inference backend je OpenAI-compatible API. Vychozi lokalni cil je LM S
 ## Quick start
 
 1. V LM Studio zapni Local Server a nacti model `qwen/qwen3.5-2b`.
-2. Zkopiruj `.env.example` na `.env`.
-3. Spust `./scripts/dev-up.sh`.
-4. Otevri:
+2. Spust Ollamu a stahni embedding model:
+   ```bash
+   ollama serve
+   ollama pull qwen3-embedding:8b
+   ```
+3. Zkopiruj `.env.example` na `.env`.
+4. Spust `./scripts/dev-up.sh`.
+5. Otevri:
    - `http://127.0.0.1:8080/`
    - `http://127.0.0.1:8080/query`
    - `http://127.0.0.1:8000/docs`
@@ -63,7 +71,9 @@ Docker stack spousti:
 - `api`
 - `frontend`
 
-LM Studio bezi mimo Docker. Kontejner `api` se na hosta pripojuje pres `DOCKER_LLM_BASE_URL`, ktere defaultne miri na `http://host.docker.internal:1234/v1`.
+LM Studio i Ollama bezi mimo Docker. Kontejner `api` se na hosta pripojuje pres:
+- `DOCKER_LLM_BASE_URL`, default `http://host.docker.internal:1234/v1`
+- `DOCKER_EMBEDDING_BASE_URL`, default `http://host.docker.internal:11434`
 
 ## Klicova konfigurace
 
@@ -72,12 +82,71 @@ LM Studio bezi mimo Docker. Kontejner `api` se na hosta pripojuje pres `DOCKER_L
 - `LLM_API_KEY`: neprazdny placeholder nebo skutecny token z LM Studio
 - `LLM_MODEL`: textovy model, default `qwen/qwen3.5-2b`
 - `LLM_VISION_MODEL`: multimodalni model pro screenshoty, default `qwen/qwen3.5-2b`
+- `EMBEDDING_BASE_URL`: Ollama base URL pro lokalni embedding mimo Docker, default `http://127.0.0.1:11434`
+- `DOCKER_EMBEDDING_BASE_URL`: Ollama endpoint pro kontejnery, default `http://host.docker.internal:11434`
+- `EMBEDDING_MODEL`: embedding model pro lokalni retrieval, default `qwen3-embedding:8b`
+- `EMBEDDING_DIMENSIONS`: pozadovana vystupni dimenze embeddingu, default `4096`
+- `QDRANT_COLLECTION`: kolekce pro vektory. Default `chunks_qwen3_embedding_8b_4096`
 - `VISION_ANSWER_ENABLED`: pripoji screenshoty do RAG odpovedi, default `true`
 - `VISION_EXTRACT_ON_INGEST`: zapne strukturovanou vision extrakci pri ingestu, default `true`
-- `EMBEDDING_MODEL`: embedding model pro lokalni retrieval
 - `COMPLIANCE_ENFORCEMENT`: `false` = Dev Mode bypass (akce bezi, audit nese bypass flag), `true` = API vyzaduje potvrzeni pro `ingest`/`query`
 
 Pokud pouzivas textovy model bez podpory obrazu, vypni vision volby (`VISION_ANSWER_ENABLED=false`, `VISION_EXTRACT_ON_INGEST=false`) a `LLM_VISION_MODEL` nastav prazdne.
+
+Pri zmene `EMBEDDING_MODEL` nebo `EMBEDDING_DIMENSIONS` pouzij novou `QDRANT_COLLECTION` a proved reingest. Aplikace existujici kolekci s jinou dimenzi automaticky nemaze.
+
+## Runtime modely
+
+- `GET /api/runtime/models` (`Admin`): vrati aktualni mapovani modelu na akce.
+- `POST /api/query/` vraci `model_usage` pro `no-rag` i `rag`.
+- `POST /api/ingest/run` vraci `model_usage` pro embedding a pripadnou vision extrakci.
+
+## Embedding model decision
+
+Porovnane kandidaty pro CZ/EN retrieval pres Ollamu:
+
+| Kandidat | Role | Tradeoff |
+|---|---|---|
+| `qwen3-embedding:0.6b` | low-resource fallback | nejrychlejsi a nejmensi, ale nizsi rezerva pro narocnejsi multijazycny retrieval |
+| `qwen3-embedding:4b` | kompromis | lepsi kvalita nez 0.6B, nizsi pametove naroky nez 8B |
+| `qwen3-embedding:8b` | default | nejlepsi kvalita z kandidatu pro CZ/EN a dlouhy kontext, za cenu vyssi RAM/VRAM a latence |
+
+Vychozi volba je `qwen3-embedding:8b`, protoze prioritou MVP je kvalita retrievalu a citaci. Pokud lokalni stroj nestiha ingest/query latenci, nejblizsi fallback je `qwen3-embedding:4b`.
+
+### Benchmark
+
+Benchmark runner pouziva lokalne ingestovane chunky, samostatne Qdrant benchmark kolekce a dotazy z JSON souboru:
+
+```bash
+python -m scripts.benchmark_embeddings \
+  --queries reports/embedding_eval_queries.json \
+  --models qwen3-embedding:0.6b qwen3-embedding:4b qwen3-embedding:8b \
+  --top-k 5 \
+  --readme-update README.md
+```
+
+Format dotazu:
+
+```json
+[
+  {
+    "query": "Jak system uklada evidence artefakty?",
+    "expected_url_contains": "example.com/docs/evidence"
+  },
+  {
+    "query": "How are citations linked to retrieved chunks?",
+    "expected_doc_id": 12
+  }
+]
+```
+
+<!-- EMBEDDING_BENCHMARK_TABLE_START -->
+| Model | Dimenze | Hit@5 | MRR@5 | p50 ms | p95 ms | Model MB | Loaded RAM MB | VRAM MB | CPU % | Poznamka |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| `qwen3-embedding:0.6b` | 1024 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | spustit na stroji s Ollamou a lokalne ingestovanymi daty |
+| `qwen3-embedding:4b` | 2560 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | spustit na stroji s Ollamou a lokalne ingestovanymi daty |
+| `qwen3-embedding:8b` | 4096 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | default pro MVP |
+<!-- EMBEDDING_BENCHMARK_TABLE_END -->
 
 ## Compliance API
 

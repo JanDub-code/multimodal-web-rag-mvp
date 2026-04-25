@@ -1,14 +1,17 @@
 # LM Studio Setup
 
-Tento projekt je ted nastaveny na OpenAI-compatible backend s defaultem pro LM Studio.
+Tento projekt je ted nastaveny na OpenAI-compatible backend s defaultem pro LM Studio pro text a vision volani.
 Vychozi textovy model v projektu je `qwen/qwen3.5-2b`.
 Vychozi vision model v projektu je `qwen/qwen3.5-2b`.
+Embeddingy bezi oddelene pres Ollamu a model `qwen3-embedding:8b`.
 
 ## 1. Co musi bezet
 
 - LM Studio s aktivnim Local Serverem
 - model `qwen/qwen3.5-2b`
 - model `qwen/qwen3.5-2b` (pouzity i pro vision)
+- Ollama server na `http://127.0.0.1:11434`
+- model `qwen3-embedding:8b`
 
 ## 2. Overeni LM Studio API
 
@@ -45,6 +48,10 @@ LLM_BASE_URL=http://127.0.0.1:1234/v1
 LLM_API_KEY=lm-studio
 LLM_MODEL=qwen/qwen3.5-2b
 LLM_VISION_MODEL=qwen/qwen3.5-2b
+EMBEDDING_BASE_URL=http://127.0.0.1:11434
+EMBEDDING_MODEL=qwen3-embedding:8b
+EMBEDDING_DIMENSIONS=4096
+QDRANT_COLLECTION=chunks_qwen3_embedding_8b_4096
 VISION_ANSWER_ENABLED=true
 VISION_EXTRACT_ON_INGEST=true
 ```
@@ -59,6 +66,7 @@ Aplikace v Dockeru musi na LM Studio bezici na hostu mluvit pres:
 
 ```env
 DOCKER_LLM_BASE_URL=http://host.docker.internal:1234/v1
+DOCKER_EMBEDDING_BASE_URL=http://host.docker.internal:11434
 ```
 
 To je uz vychozi hodnota v `scripts/dev-up.sh`, takze ji vetsinou nemusis menit.
@@ -76,12 +84,13 @@ Script spusti:
 - API
 - frontend
 
-LM Studio se nestartuje z Docker Compose. Musi bezet separatne.
+LM Studio ani Ollama se nestartuji z Docker Compose. Musi bezet separatne.
 
 ## 6. Co se v projektu zmenilo
 
-- projekt uz nepouziva `OLLAMA_*` konfiguraci jako hlavni cestu
+- projekt nepouziva `OLLAMA_*` konfiguraci pro text/vision volani; Ollama je pouzita pro samostatny embedding backend
 - modelove volani jdou pres OpenAI-compatible `POST /v1/chat/completions`
+- embedding volani jde pres Ollama `POST /api/embed`
 - healthcheck kontroluje `GET /v1/models`
 - Docker Compose uz nestartuje vlastni `ollama` service
 

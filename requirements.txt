@@ -13,9 +13,9 @@ requests==2.33.0
 beautifulsoup4==4.13.4
 playwright==1.55.0
 qdrant-client==1.15.1
-sentence-transformers==3.0.1
 numpy==1.26.4; python_version < "3.13"
 numpy>=2.1.0; python_version >= "3.13"
 pytesseract==0.3.13
 Pillow==12.2.0
+psutil==6.1.1
 pytest==9.0.3
