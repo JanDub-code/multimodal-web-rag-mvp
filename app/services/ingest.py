@@ -87,8 +87,23 @@ def _run_playwright_in_fresh_loop(url: str, screenshot_path: str) -> tuple[str, 
         from playwright.async_api import async_playwright
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page(viewport={"width": 1440, "height": 2200})
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-http2",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                ],
+            )
+            context = await browser.new_context(
+                viewport={"width": 1440, "height": 2200},
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+            )
+            page = await context.new_page()
             await page.route("**/*", _playwright_route_guard)
             await page.goto(url, wait_until="networkidle", timeout=45000)
             title = await page.title()
