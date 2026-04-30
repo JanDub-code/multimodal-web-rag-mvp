@@ -2,7 +2,7 @@
 
 ## Summary
 - ✅ `pytest tests/test_eval_metrics.py` – passed (run inside API container).
-- ❌ `scripts/eval_retrieval.py` – failed (embedding backend unreachable from container).
+- ❌ `scripts/eval_retrieval.py` – failed (Qdrant collection missing; no results).
 - ✅ `scripts/refresh_stale.py` – passed (no stale URLs).
 
 ## Details
@@ -20,7 +20,7 @@
 
 **Output (excerpt):**
 ```
-EmbeddingBackendError: Ollama embedding backend is not reachable at http://host.docker.internal:11434/api/embed.
+Qdrant collection 'chunks_qwen3_embedding_8b_4096' does not exist yet — returning empty results
 ```
 
 ### 3) Refresh stale runner
@@ -40,7 +40,7 @@ EmbeddingBackendError: Ollama embedding backend is not reachable at http://host.
 
 ## Notes
 - Unit tests and refresh script were executed inside the API container after rebuilding and applying migrations.
-- Retrieval eval failed because the embedding backend at `http://host.docker.internal:11434` is not reachable from the container (Ollama not running or not exposed).
+- Retrieval eval failed because the Qdrant collection `chunks_qwen3_embedding_8b_4096` does not exist (no ingest yet), so results are empty and quality gate fails.
 
 ## Files used
 - `tests/test_eval_metrics.py` – unit test suite pro metriky (Recall/MRR/percentil).
