@@ -245,7 +245,12 @@ export function useMockInterceptor(axiosInstance) {
 
     if (matchUrl(url, '/settings') && method === 'put') {
       await delay(500)
-      mockResponse = { status: 'ok', message: 'Nastaveni ulozeno' }
+      const data = parseBody(config.data)
+      mockSettings.retention = {
+        ...mockSettings.retention,
+        ...(data.retention || {}),
+      }
+      mockResponse = mockSettings
     }
 
     // COMPLIANCE

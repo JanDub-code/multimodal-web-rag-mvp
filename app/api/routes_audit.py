@@ -20,6 +20,7 @@ _ACTION_TO_EVENT_TYPE: dict[str, str] = {
     "compliance.bypassed": "COMPLIANCE CONFIRM",
     "model.call": "TEST RUN",
     "incident.captcha": "CAPTCHA ERROR",
+    "settings.updated": "SETTINGS UPDATE",
 }
 
 

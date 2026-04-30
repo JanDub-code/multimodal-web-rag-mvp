@@ -156,9 +156,6 @@ export const mockIncidents = [
 ]
 
 export const mockSettings = {
-  llm_provider: 'GPT',
-  max_context_window: 4096,
-  rate_limit_per_user: 30,
   retention: {
     raw_evidence: '60 dní',
     audit_logs: '60 dní',

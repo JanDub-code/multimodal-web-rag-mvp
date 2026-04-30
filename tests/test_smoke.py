@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.api import routes_compliance, routes_ingest, routes_query, routes_runtime
-from app.db.models import AuditLog, Chunk, Document, Incident, IngestJob, RefreshToken
+from app.db.models import AuditLog, Chunk, Document, Incident, IngestJob, RefreshToken, SystemSetting
 from app import main as app_main
 from app.services import answering, compliance, embeddings, extract, incidents, ingest, retrieval, url_safety
 from app.services.request_context import reset_request_id, set_request_id
@@ -803,6 +803,40 @@ def test_login_returns_refresh_token_and_audit_request_id(api_client, db_session
     assert latest_audit is not None
     metadata = json.loads(latest_audit.metadata_json or "{}")
     assert metadata.get("request_id") == "req-login-1"
+
+
+def test_settings_retention_roundtrip_persists_and_audits(api_client, db_session, user_factory):
+    user_factory("admin", "secret", role="Admin")
+    login = api_client.post("/api/auth/login", data={"username": "admin", "password": "secret"})
+    token = login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}", "X-Request-ID": "req-settings-1"}
+
+    defaults = api_client.get("/api/settings", headers=headers)
+    assert defaults.status_code == 200
+    assert defaults.json()["retention"] == {
+        "raw_evidence": "60 dní",
+        "audit_logs": "60 dní",
+        "vector_snapshot": "60 dní",
+    }
+
+    payload = {
+        "retention": {
+            "raw_evidence": "90 dní",
+            "audit_logs": "1 rok",
+            "vector_snapshot": "30 dní",
+        }
+    }
+    updated = api_client.put("/api/settings", json=payload, headers=headers)
+
+    assert updated.status_code == 200
+    assert updated.json() == payload
+    assert db_session.query(SystemSetting).count() == 3
+
+    latest_audit = db_session.query(AuditLog).order_by(AuditLog.id.desc()).first()
+    assert latest_audit.action == "settings.updated"
+    metadata = json.loads(latest_audit.metadata_json or "{}")
+    assert metadata["retention"] == payload["retention"]
+    assert metadata["request_id"] == "req-settings-1"
 
 
 def test_refresh_rotates_token_and_rejects_reuse(api_client, db_session, user_factory):

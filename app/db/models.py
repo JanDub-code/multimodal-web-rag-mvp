@@ -49,6 +49,15 @@ class Source(Base):
     created_ts: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(120), unique=True, nullable=False, index=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_ts: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
 class IngestJob(Base):
     __tablename__ = "ingest_jobs"
 
