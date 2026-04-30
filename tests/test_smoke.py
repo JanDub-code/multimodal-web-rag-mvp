@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.api import routes_compliance, routes_ingest, routes_query, routes_runtime
-from app.db.models import AuditLog, Chunk, Document, Incident, IngestJob, RefreshToken, SystemSetting
+from app.db.models import AuditLog, Chunk, Document, Incident, IngestJob, RefreshToken, SystemSetting, User
 from app import main as app_main
 from app.services import answering, compliance, embeddings, extract, incidents, ingest, retrieval, url_safety
 from app.services.request_context import reset_request_id, set_request_id
@@ -803,6 +803,15 @@ def test_login_returns_refresh_token_and_audit_request_id(api_client, db_session
     assert latest_audit is not None
     metadata = json.loads(latest_audit.metadata_json or "{}")
     assert metadata.get("request_id") == "req-login-1"
+
+
+def test_login_with_invalid_stored_hash_returns_401(api_client, db_session):
+    db_session.add(User(username="broken", password_hash="not-a-passlib-hash", role="User"))
+    db_session.commit()
+
+    response = api_client.post("/api/auth/login", data={"username": "broken", "password": "secret"})
+
+    assert response.status_code == 401
 
 
 def test_settings_retention_roundtrip_persists_and_audits(api_client, db_session, user_factory):

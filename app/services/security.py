@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -8,6 +9,7 @@ from passlib.context import CryptContext
 from app.config import get_settings
 
 
+logger = logging.getLogger(__name__)
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 settings = get_settings()
 
@@ -17,7 +19,11 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return pwd_context.verify(password, password_hash)
+    try:
+        return pwd_context.verify(password, password_hash)
+    except Exception:
+        logger.warning("Stored password hash could not be verified.")
+        return False
 
 
 def create_access_token(subject: str, role: str) -> str:

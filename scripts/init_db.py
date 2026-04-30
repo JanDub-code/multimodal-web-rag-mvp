@@ -10,14 +10,27 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from app.db.models import User
 from app.db.session import SessionLocal
-from app.services.security import hash_password
+from app.services.security import hash_password, verify_password
 
 
-def ensure_user(db, username: str, password: str, role: str) -> None:
+def ensure_user(db, username: str, password: str, role: str) -> str:
     existing = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
     if existing:
-        return
+        password_matches = False
+        try:
+            password_matches = verify_password(password, existing.password_hash)
+        except Exception:
+            password_matches = False
+
+        if password_matches and existing.role == role:
+            return "unchanged"
+
+        existing.password_hash = hash_password(password)
+        existing.role = role
+        return "updated"
+
     db.add(User(username=username, password_hash=hash_password(password), role=role))
+    return "created"
 
 
 def ensure_schema_ready(db) -> None:
@@ -32,12 +45,15 @@ def ensure_schema_ready(db) -> None:
 def main() -> None:
     with SessionLocal() as db:
         ensure_schema_ready(db)
-        ensure_user(db, "admin", "admin123", "Admin")
-        ensure_user(db, "curator", "curator123", "Curator")
-        ensure_user(db, "analyst", "analyst123", "Analyst")
-        ensure_user(db, "user", "user123", "User")
+        results = {
+            "admin": ensure_user(db, "admin", "admin123", "Admin"),
+            "curator": ensure_user(db, "curator", "curator123", "Curator"),
+            "analyst": ensure_user(db, "analyst", "analyst123", "Analyst"),
+            "user": ensure_user(db, "user", "user123", "User"),
+        }
         db.commit()
-    print("Default users ensured.")
+    summary = ", ".join(f"{username}:{status}" for username, status in results.items())
+    print(f"Default users ensured ({summary}).")
 
 
 if __name__ == "__main__":

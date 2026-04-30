@@ -17,13 +17,13 @@ echo "[dev-up] Starting core services..."
 docker compose up -d postgres qdrant
 
 echo "[dev-up] Applying database migrations..."
-docker compose --profile tools run --rm migrate
+docker compose --profile tools run --rm --build migrate
 
 echo "[dev-up] Ensuring default users..."
-docker compose --profile tools run --rm migrate python -m scripts.init_db
+docker compose --profile tools run --rm --build migrate python -m scripts.init_db
 
 echo "[dev-up] Starting api and frontend..."
-docker compose up -d api frontend
+docker compose up -d --build api frontend
 
 echo
 echo "[dev-up] Done."
