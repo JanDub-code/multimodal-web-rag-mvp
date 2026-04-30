@@ -148,6 +148,33 @@ Format dotazu:
 | `qwen3-embedding:8b` | 4096 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | default pro MVP |
 <!-- EMBEDDING_BENCHMARK_TABLE_END -->
 
+## Retrieval eval (Recall@k, MRR@k)
+
+Eval dataset pro CZ/EN dotazy je v `reports/retrieval_eval_dataset.json`. Obsahuje real-world prompty a ocekavana URL/chunky (uprav podle konkretniho knowledge base).
+
+Runner skript `scripts/eval_retrieval.py` meri:
+- Recall@k a MRR@k nad aktualni retrieval pipeline (`search_top_k`)
+- latenci (p50/p95)
+
+Output se uklada do verzovanych reportu `reports/retrieval_eval_YYYYMMDD_HHMMSS.json`.
+V repozitari je ulozen placeholder report `reports/retrieval_eval_2026-04-30.json` pro udrzeni historie (nahrazuje se realnym behy skriptu).
+
+### Quality gate
+
+Minimalni quality gate pro retrieval:
+- Recall@5 >= 0.60
+- MRR@5 >= 0.30
+
+Skript vraci non-zero exit code, pokud gate neprojde.
+
+## Refresh workflow (re-ingest)
+
+Refresh workflow je explicitne dostupny na `POST /api/ingest/refresh` a pouziva stejny ingest pipeline bez nutnosti rucniho mazani dokumentu.
+Metadata pro refresh rozhodovani jsou ulozena na urovni `source_urls` (URL, last_successful_ingest_ts, refresh_interval_minutes).
+
+Automaticky scheduler se spousti pri `REFRESH_SCHEDULER_ENABLED=true` a v intervalech `REFRESH_SCHEDULER_INTERVAL_SECONDS` kontroluje stale URL.
+Refresh job je idempotentni (prioritne aktualizuje existujici dokumenty, nezdvojuje chunky) a loguje auditni zaznam `refresh.batch` s pocty URL, uspesnosti a incidenty.
+
 ## Compliance API
 
 - `GET /api/compliance/mode`: vrati aktualni enforcement rezim.

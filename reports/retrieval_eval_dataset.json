@@ -1,0 +1,62 @@
+[
+  {
+    "query": "Na jakých portech běží lokální LM Studio a Ollama?",
+    "expected_url_contains": "LM_STUDIO_SETUP"
+  },
+  {
+    "query": "What is the fallback strategy when HTML scraping fails?",
+    "expected_url_contains": "docs/ingest"
+  },
+  {
+    "query": "Jak mohu vypnout zpracování obrázků a tabulek, pokud mám jen textový model?",
+    "expected_url_contains": "README"
+  },
+  {
+    "query": "How are CAPTCHA and fetch errors recorded in the system?",
+    "expected_url_contains": "docs/incidents"
+  },
+  {
+    "query": "Který embedding model je nastavený jako výchozí a jakou má dimenzi?",
+    "expected_url_contains": "VYBER_MODELU"
+  },
+  {
+    "query": "Is the refresh job idempotent? Will it create duplicate chunks?",
+    "expected_url_contains": "docs/refresh"
+  },
+  {
+    "query": "Co se stane, když je Compliance Enforcement přepnutý na Dev Mode bypass?",
+    "expected_url_contains": "docs/compliance"
+  },
+  {
+    "query": "Where are the evidence files and physical artifacts stored locally?",
+    "expected_url_contains": "docs/evidence"
+  },
+  {
+    "query": "How to change the Qdrant collection when switching embedding models?",
+    "expected_url_contains": "README"
+  },
+  {
+    "query": "Jak systém získá text z webu, který se renderuje přes JavaScript a nejde jednoduše stáhnout?",
+    "expected_url_contains": "docs/ingest"
+  },
+  {
+    "query": "What endpoint should an Analyst use to check the history of bypassed ingestions?",
+    "expected_url_contains": "docs/compliance"
+  },
+  {
+    "query": "Proč nebyl pro MVP vybrán menší qwen3-embedding:0.6b model?",
+    "expected_url_contains": "VYBER_MODELU"
+  },
+  {
+    "query": "Which endpoints support operation_id for request correlation?",
+    "expected_url_contains": "docs/runtime"
+  },
+  {
+    "query": "Co vrátí healthcheck, když spadne PostgreSQL, ale LLM dál běží?",
+    "expected_url_contains": "README"
+  },
+  {
+    "query": "What happens if a user searches without the RAG mode enabled?",
+    "expected_url_contains": "Architektura_systemu"
+  }
+]

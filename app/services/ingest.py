@@ -20,6 +20,7 @@ from app.services.incidents import detect_captcha_heuristic, log_captcha_inciden
 from app.services.model_usage import ingest_model_usage
 from app.services.multimodal import extract_structured_document_from_image, llm_chat_generate
 from app.services.retrieval import delete_vectors_by_chunk_ids, upsert_chunk_vectors
+from app.services.source_urls import ensure_source_url, mark_attempt, mark_success
 from app.services.url_safety import SafeSession, UnsafeUrlError, validate_public_url
 
 logger = logging.getLogger(__name__)
@@ -285,14 +286,29 @@ def _classify_ingest_failure(exc: Exception) -> str:
     return "ingest_failure"
 
 
-def run_ingest(db: Session, source_id: int, url: str) -> dict:
+def run_ingest(
+    db: Session,
+    source_id: int,
+    url: str,
+    *,
+    refresh_interval_minutes: int | None = None,
+) -> dict:
     source = db.get(Source, source_id)
     if not source:
         raise ValueError("Source not found")
 
     validate_public_url(url)
 
-    job = IngestJob(source_id=source_id, url=url, strategy="HTML", status="running")
+    started_ts = datetime.now(timezone.utc)
+    source_url = ensure_source_url(
+        db,
+        source_id=source_id,
+        url=url,
+        refresh_interval_minutes=refresh_interval_minutes,
+    )
+    mark_attempt(source_url, started_ts)
+
+    job = IngestJob(source_id=source_id, url=url, strategy="HTML", status="running", started_ts=started_ts)
     db.add(job)
     db.flush()
 
@@ -468,6 +484,7 @@ def run_ingest(db: Session, source_id: int, url: str) -> dict:
         job.strategy = strategy
         job.status = "completed"
         job.finished_ts = datetime.now(timezone.utc)
+        mark_success(source_url, job.finished_ts)
         db.commit()
 
         logger.info("Ingest completed: job=%d strategy=%s doc=%d chunks=%d", job.id, strategy, document.id, len(chunk_rows))
@@ -488,6 +505,16 @@ def run_ingest(db: Session, source_id: int, url: str) -> dict:
     except Exception as exc:
         logger.exception("Ingest failed for source %d, URL %s", source_id, url)
         db.rollback()
+        try:
+            source_url = ensure_source_url(
+                db,
+                source_id=source_id,
+                url=url,
+                refresh_interval_minutes=refresh_interval_minutes,
+            )
+            mark_attempt(source_url)
+        except Exception:
+            logger.exception("Failed to update source_url attempt timestamp")
         incident_type = _classify_ingest_failure(exc)
         failure_incident_id = None
         try:

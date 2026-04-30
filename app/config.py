@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     retrieval_min_score: float = 0.25
     compliance_enforcement: bool = False
 
+    refresh_default_interval_minutes: int = 10080
+    refresh_retry_backoff_minutes: int = 30
+    refresh_scheduler_enabled: bool = False
+    refresh_scheduler_interval_seconds: int = 900
+    refresh_scheduler_batch_size: int = 5
+
     def ensure_dirs(self) -> None:
         Path(self.evidence_dir).mkdir(parents=True, exist_ok=True)
         Path(self.screenshot_dir).mkdir(parents=True, exist_ok=True)

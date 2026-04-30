@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -21,6 +22,7 @@ from app.api.routes_settings import router as settings_router
 from app.config import get_settings
 from app.db.session import engine
 from app.services.multimodal import build_llm_headers, resolve_llm_base_url
+from app.services.refresh import refresh_scheduler_loop
 from app.services.request_context import get_request_id, reset_request_id, set_request_id
 
 
@@ -80,7 +82,21 @@ def _check_llm_backend() -> dict:
 async def lifespan(app: FastAPI):
     if settings.app_secret_key in {"change-me", "change-me-in-production"}:
         logger.warning("APP_SECRET_KEY is still set to a default placeholder. Change it in .env for production.")
-    yield
+    stop_event: asyncio.Event | None = None
+    task: asyncio.Task | None = None
+    if settings.refresh_scheduler_enabled:
+        stop_event = asyncio.Event()
+        task = asyncio.create_task(refresh_scheduler_loop(stop_event))
+    try:
+        yield
+    finally:
+        if stop_event and task:
+            stop_event.set()
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
