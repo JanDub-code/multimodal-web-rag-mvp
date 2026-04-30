@@ -151,7 +151,7 @@
           auto-grow
           hide-details
           class="chat-input"
-          @keydown.enter.prevent="runQuery"
+          @keydown.enter="handleEnter"
         >
           <template #append-inner>
             <v-btn 
@@ -322,6 +322,13 @@ async function runQuery() {
     loading.value = false
     scrollToBottom()
   }
+}
+
+function handleEnter(event) {
+  if (event.shiftKey) return
+
+  event.preventDefault()
+  runQuery()
 }
 
 function scrollToBottom() {
