@@ -6,11 +6,11 @@ cd "$ROOT_DIR"
 
 if [[ $# -gt 0 ]]; then
   echo "[dev-up] This script does not support runtime-specific arguments."
-  echo "[dev-up] Start LM Studio and Ollama separately, then run ./scripts/dev-up.sh"
+  echo "[dev-up] Start Ollama separately, then run ./scripts/dev-up.sh"
   exit 1
 fi
 
-export DOCKER_LLM_BASE_URL="${DOCKER_LLM_BASE_URL:-http://host.docker.internal:1234/v1}"
+export DOCKER_OLLAMA_BASE_URL="${DOCKER_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
 export DOCKER_EMBEDDING_BASE_URL="${DOCKER_EMBEDDING_BASE_URL:-http://host.docker.internal:11434}"
 
 verify_default_users() {
@@ -49,7 +49,7 @@ echo "[dev-up] Done."
 echo "Frontend: http://127.0.0.1:8080"
 echo "API: http://127.0.0.1:8000"
 echo "Health: http://127.0.0.1:8000/health"
-echo "LLM base URL for containers: ${DOCKER_LLM_BASE_URL}"
+echo "Ollama base URL for containers: ${DOCKER_OLLAMA_BASE_URL}"
 echo "Embedding base URL for containers: ${DOCKER_EMBEDDING_BASE_URL}"
 echo
-echo "Make sure LM Studio and Ollama are running and the configured models are loaded."
+echo "Make sure Ollama is running and the configured models are pulled."

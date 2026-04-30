@@ -1,6 +1,6 @@
 from app.config import get_settings
 from app.services.embeddings import resolve_embedding_base_url
-from app.services.multimodal import resolve_llm_base_url
+from app.services.multimodal import resolve_ollama_base_url
 
 settings = get_settings()
 
@@ -19,22 +19,22 @@ def embedding_usage(*, used_for: list[str] | None = None, active: bool = True) -
 
 def text_usage(*, used_for: list[str] | None = None, model: str | None = None, active: bool = True) -> dict:
     return {
-        "provider": "openai-compatible",
-        "endpoint": f"{resolve_llm_base_url()}/chat/completions",
-        "model": model or settings.llm_model,
+        "provider": "ollama",
+        "endpoint": f"{resolve_ollama_base_url()}/api/chat",
+        "model": model or settings.ollama_model,
         "active": active,
         "used_for": used_for or ["query.no_rag", "query.rag.answer"],
     }
 
 
 def vision_usage(*, used_for: list[str] | None = None, model: str | None = None, active: bool | None = None) -> dict:
-    selected_model = model or settings.llm_vision_model
+    selected_model = model or settings.ollama_vision_model
     enabled = active if active is not None else bool(
         selected_model and (settings.vision_answer_enabled or settings.vision_extract_on_ingest)
     )
     return {
-        "provider": "openai-compatible",
-        "endpoint": f"{resolve_llm_base_url()}/chat/completions",
+        "provider": "ollama",
+        "endpoint": f"{resolve_ollama_base_url()}/api/chat",
         "model": selected_model,
         "active": bool(enabled),
         "used_for": used_for or ["ingest.vision_extract", "query.rag.vision_answer"],
@@ -52,7 +52,7 @@ def configured_model_usage() -> dict:
 def query_model_usage(*, mode: str, generation_model: str | None = None, vision_used: bool = False) -> dict:
     if mode == "no-rag":
         return {
-            "text": text_usage(used_for=["query.no_rag"], model=generation_model or settings.llm_model),
+            "text": text_usage(used_for=["query.no_rag"], model=generation_model or settings.ollama_model),
         }
 
     usage = {

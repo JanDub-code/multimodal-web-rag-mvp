@@ -2,11 +2,11 @@
 
 Lokalni MVP pro ingest webovych stranek a dotazovani ve dvou rezimech:
 - `rag`: retrieval z Qdrantu + odpoved s citacemi
-- `no-rag`: prime volani LLM bez retrieval kroku
+- `no-rag`: prime volani Ollama modelu bez retrieval kroku
 
-Aktualni inference backend pro text a vision je OpenAI-compatible API. Vychozi lokalni cil je LM Studio na `http://127.0.0.1:1234/v1` s textovym i vision modelem `qwen/qwen3.5-2b`.
+Aktualni inference backend pro text a vision je Ollama API na `http://127.0.0.1:11434` s textovym i vision modelem `qwen3.5:2b`.
 
-Embedding backend je samostatna Ollama instance na `http://127.0.0.1:11434` s default modelem `qwen3-embedding:8b`.
+Embedding backend bezi pres stejnou Ollama instanci na `http://127.0.0.1:11434` s default modelem `qwen3-embedding:8b`.
 
 ## Architektonicka realita
 
@@ -14,8 +14,7 @@ Embedding backend je samostatna Ollama instance na `http://127.0.0.1:11434` s de
 - PostgreSQL pro metadata, auth, audit, ingest a incidenty
 - Qdrant pro embeddingy a retrieval
 - evidence artefakty v `./data/evidence`
-- LM Studio nebo jiny OpenAI-compatible backend jako text/vision inference vrstva
-- Ollama jako embedding backend
+- Ollama jako text/vision inference i embedding backend
 - Alembic migrace pres compose sluzbu `migrate`
 
 ## Co je implementovano
@@ -32,21 +31,21 @@ Embedding backend je samostatna Ollama instance na `http://127.0.0.1:11434` s de
 
 ## Quick start
 
-1. V LM Studio zapni Local Server a nacti model `qwen/qwen3.5-2b`.
-2. Spust Ollamu a stahni embedding model:
+1. Spust Ollamu a stahni text/vision i embedding model:
    ```bash
    ollama serve
+   ollama pull qwen3.5:2b
    ollama pull qwen3-embedding:8b
    ```
-3. Zkopiruj `.env.example` na `.env`.
-4. Spust `./scripts/dev-up.sh`.
-5. Otevri:
+2. Zkopiruj `.env.example` na `.env`.
+3. Spust `./scripts/dev-up.sh`.
+4. Otevri:
    - `http://127.0.0.1:8080/`
    - `http://127.0.0.1:8080/query`
    - `http://127.0.0.1:8000/docs`
    - `http://127.0.0.1:8000/health`
 
-Podrobny navod je v `LM_STUDIO_SETUP.md`.
+Podrobny navod je v `OLLAMA_SETUP.md`.
 
 ### Prihlaseni (dev)
 
@@ -71,17 +70,16 @@ Docker stack spousti:
 - `api`
 - `frontend`
 
-LM Studio i Ollama bezi mimo Docker. Kontejner `api` se na hosta pripojuje pres:
-- `DOCKER_LLM_BASE_URL`, default `http://host.docker.internal:1234/v1`
+Ollama bezi mimo Docker. Kontejner `api` se na hosta pripojuje pres:
+- `DOCKER_OLLAMA_BASE_URL`, default `http://host.docker.internal:11434`
 - `DOCKER_EMBEDDING_BASE_URL`, default `http://host.docker.internal:11434`
 
 ## Klicova konfigurace
 
-- `LLM_BASE_URL`: OpenAI-compatible base URL pro lokalni beh mimo Docker
-- `DOCKER_LLM_BASE_URL`: stejny endpoint pro kontejnery
-- `LLM_API_KEY`: neprazdny placeholder nebo skutecny token z LM Studio
-- `LLM_MODEL`: textovy model, default `qwen/qwen3.5-2b`
-- `LLM_VISION_MODEL`: multimodalni model pro screenshoty, default `qwen/qwen3.5-2b`
+- `OLLAMA_BASE_URL`: Ollama base URL pro lokalni beh mimo Docker
+- `DOCKER_OLLAMA_BASE_URL`: stejny endpoint pro kontejnery
+- `OLLAMA_MODEL`: textovy model, default `qwen3.5:2b`
+- `OLLAMA_VISION_MODEL`: multimodalni model pro screenshoty, default `qwen3.5:2b`
 - `EMBEDDING_BASE_URL`: Ollama base URL pro lokalni embedding mimo Docker, default `http://127.0.0.1:11434`
 - `DOCKER_EMBEDDING_BASE_URL`: Ollama endpoint pro kontejnery, default `http://host.docker.internal:11434`
 - `EMBEDDING_MODEL`: embedding model pro lokalni retrieval, default `qwen3-embedding:8b`
@@ -91,7 +89,7 @@ LM Studio i Ollama bezi mimo Docker. Kontejner `api` se na hosta pripojuje pres:
 - `VISION_EXTRACT_ON_INGEST`: zapne strukturovanou vision extrakci pri ingestu, default `true`
 - `COMPLIANCE_ENFORCEMENT`: `false` = Dev Mode bypass (akce bezi, audit nese bypass flag), `true` = API vyzaduje potvrzeni pro `ingest`/`query`
 
-Pokud pouzivas textovy model bez podpory obrazu, vypni vision volby (`VISION_ANSWER_ENABLED=false`, `VISION_EXTRACT_ON_INGEST=false`) a `LLM_VISION_MODEL` nastav prazdne.
+Pokud pouzivas textovy model bez podpory obrazu, vypni vision volby (`VISION_ANSWER_ENABLED=false`, `VISION_EXTRACT_ON_INGEST=false`) a `OLLAMA_VISION_MODEL` nastav prazdne.
 
 Pri zmene `EMBEDDING_MODEL` nebo `EMBEDDING_DIMENSIONS` pouzij novou `QDRANT_COLLECTION` a proved reingest. Aplikace existujici kolekci s jinou dimenzi automaticky nemaze.
 
@@ -189,9 +187,9 @@ Refresh job je idempotentni (prioritne aktualizuje existujici dokumenty, nezdvoj
 ## Health a readiness
 
 - required komponenty: `postgres`, `qdrant`
-- optional komponenta: `llm`
+- optional komponenta: `ollama`
 - `GET /health` a `GET /health/ready` vraci `200`, kdyz bezi required komponenty
-- pokud je LM Studio vypnute, API zustane `degraded` jen tehdy, kdyz spadne PostgreSQL nebo Qdrant
+- pokud je Ollama vypnuta, API zustane `degraded` jen tehdy, kdyz spadne PostgreSQL nebo Qdrant
 
 ## Testy
 
@@ -203,7 +201,7 @@ pytest
 
 ## Souvisejici dokumenty
 
-- `LM_STUDIO_SETUP.md`
+- `OLLAMA_SETUP.md`
 - `Architektura_systemu_2026-04-02.md`
 - `TODO.md`
 - `VYBER_MODELU_QWEN35.md`

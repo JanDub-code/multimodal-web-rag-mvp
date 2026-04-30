@@ -24,21 +24,17 @@ class Settings(BaseSettings):
     embedding_model: str = "qwen3-embedding:8b"
     embedding_dimensions: int = 4096
     embedding_timeout_seconds: int = 60
-    llm_base_url: str = Field(
-        default="http://127.0.0.1:1234/v1",
-        validation_alias=AliasChoices("LLM_BASE_URL", "OPENAI_BASE_URL", "OLLAMA_URL"),
+    ollama_base_url: str = Field(
+        default="http://127.0.0.1:11434",
+        validation_alias=AliasChoices("OLLAMA_BASE_URL", "OLLAMA_URL"),
     )
-    llm_api_key: str = Field(
-        default="lm-studio",
-        validation_alias=AliasChoices("LLM_API_KEY", "OPENAI_API_KEY"),
+    ollama_model: str = Field(
+        default="qwen3.5:2b",
+        validation_alias=AliasChoices("OLLAMA_MODEL"),
     )
-    llm_model: str = Field(
-        default="qwen/qwen3.5-2b",
-        validation_alias=AliasChoices("LLM_MODEL", "OPENAI_MODEL", "OLLAMA_MODEL"),
-    )
-    llm_vision_model: str | None = Field(
-        default="qwen/qwen3.5-2b",
-        validation_alias=AliasChoices("LLM_VISION_MODEL", "OPENAI_VISION_MODEL", "OLLAMA_VISION_MODEL"),
+    ollama_vision_model: str | None = Field(
+        default="qwen3.5:2b",
+        validation_alias=AliasChoices("OLLAMA_VISION_MODEL"),
     )
     vision_answer_enabled: bool = True
     vision_extract_on_ingest: bool = True

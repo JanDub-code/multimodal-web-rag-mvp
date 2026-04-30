@@ -321,7 +321,7 @@ export function useMockInterceptor(axiosInstance) {
           api: { status: 'up' },
           postgres: { status: 'up' },
           qdrant: { status: 'up' },
-          llm: { status: 'up', required: false },
+          ollama: { status: 'up', required: false },
         },
       }
     }

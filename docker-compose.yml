@@ -35,7 +35,7 @@
     environment:
       DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/multimodal_mvp
       QDRANT_URL: http://qdrant:6333
-      LLM_BASE_URL: ${DOCKER_LLM_BASE_URL:-http://host.docker.internal:1234/v1}
+      OLLAMA_BASE_URL: ${DOCKER_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       EMBEDDING_BASE_URL: ${DOCKER_EMBEDDING_BASE_URL:-http://host.docker.internal:11434}
     depends_on:
       postgres:
@@ -54,7 +54,7 @@
       APP_HOST: 0.0.0.0
       DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/multimodal_mvp
       QDRANT_URL: http://qdrant:6333
-      LLM_BASE_URL: ${DOCKER_LLM_BASE_URL:-http://host.docker.internal:1234/v1}
+      OLLAMA_BASE_URL: ${DOCKER_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       EMBEDDING_BASE_URL: ${DOCKER_EMBEDDING_BASE_URL:-http://host.docker.internal:11434}
     depends_on:
       postgres:

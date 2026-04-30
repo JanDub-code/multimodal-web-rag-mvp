@@ -12,28 +12,8 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-_IMAGE_MIME_TYPES = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
-    ".gif": "image/gif",
-}
-
-
-def resolve_llm_base_url() -> str:
-    base_url = settings.llm_base_url.strip().rstrip("/")
-    if not base_url.endswith("/v1"):
-        base_url = f"{base_url}/v1"
-    return base_url
-
-
-def build_llm_headers() -> dict[str, str]:
-    headers = {"Content-Type": "application/json"}
-    api_key = settings.llm_api_key.strip()
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    return headers
+def resolve_ollama_base_url() -> str:
+    return settings.ollama_base_url.strip().rstrip("/")
 
 
 def encode_image_file(image_path: str | Path) -> str:
@@ -41,50 +21,26 @@ def encode_image_file(image_path: str | Path) -> str:
     return base64.b64encode(path.read_bytes()).decode("utf-8")
 
 
-def _image_to_data_url(image_path: str | Path) -> str:
-    path = Path(image_path)
-    mime_type = _IMAGE_MIME_TYPES.get(path.suffix.lower(), "application/octet-stream")
-    return f"data:{mime_type};base64,{encode_image_file(path)}"
-
-
 def _build_chat_messages(prompt: str, image_paths: list[str] | None = None) -> list[dict[str, object]]:
     resolved_images: list[str] = []
     for image_path in image_paths or []:
         path = Path(image_path)
         if path.exists() and path.is_file():
-            resolved_images.append(_image_to_data_url(path))
+            resolved_images.append(encode_image_file(path))
 
     if not resolved_images:
         return [{"role": "user", "content": prompt}]
 
-    content: list[dict[str, object]] = [{"type": "text", "text": prompt}]
-    content.extend({"type": "image_url", "image_url": {"url": image_url}} for image_url in resolved_images)
-    return [{"role": "user", "content": content}]
+    return [{"role": "user", "content": prompt, "images": resolved_images}]
 
 
 def _extract_chat_response_text(payload: dict) -> str | None:
-    choices = payload.get("choices") or []
-    if not choices:
-        return None
-    first_choice = choices[0] if isinstance(choices[0], dict) else {}
-    message = first_choice.get("message") or {}
+    message = payload.get("message") or {}
     content = message.get("content")
-    if isinstance(content, str):
-        return content
-    if not isinstance(content, list):
-        return None
-
-    text_parts: list[str] = []
-    for item in content:
-        if not isinstance(item, dict):
-            continue
-        text = item.get("text")
-        if text:
-            text_parts.append(str(text))
-    return "\n".join(text_parts).strip() or None
+    return content if isinstance(content, str) else None
 
 
-def llm_chat_generate(
+def ollama_chat_generate(
     prompt: str,
     model: str,
     image_paths: list[str] | None = None,
@@ -93,27 +49,27 @@ def llm_chat_generate(
     payload: dict[str, object] = {
         "model": model,
         "messages": _build_chat_messages(prompt, image_paths),
+        "stream": False,
     }
 
     try:
         response = requests.post(
-            f"{resolve_llm_base_url()}/chat/completions",
-            headers=build_llm_headers(),
+            f"{resolve_ollama_base_url()}/api/chat",
             json=payload,
             timeout=timeout or settings.vision_timeout_seconds,
         )
         response.raise_for_status()
         return _extract_chat_response_text(response.json())
     except requests.ConnectionError:
-        logger.error("LLM backend is not reachable at %s.", resolve_llm_base_url())
+        logger.error("Ollama is not reachable at %s.", resolve_ollama_base_url())
         return None
     except requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else "unknown"
         response_body = (exc.response.text or "")[:500] if exc.response is not None else ""
-        logger.error("LLM request failed with status %s: %s", status_code, response_body)
+        logger.error("Ollama request failed with status %s: %s", status_code, response_body)
         return None
     except Exception:
-        logger.exception("LLM request failed")
+        logger.exception("Ollama request failed")
         return None
 
 
@@ -200,7 +156,7 @@ def extract_structured_document_from_image(
     if not settings.vision_extract_on_ingest:
         return None, None
 
-    model = settings.llm_vision_model or settings.llm_model
+    model = settings.ollama_vision_model or settings.ollama_model
     prompt = (
         "You are extracting a structured canonical document from a webpage screenshot. "
         "Return strict JSON only with keys: title, visual_summary, sections, tables. "
@@ -214,7 +170,7 @@ def extract_structured_document_from_image(
         f"OCR hint: {ocr_text[:settings.vision_prompt_max_context_chars]}"
     )
 
-    raw_output = llm_chat_generate(prompt=prompt, model=model, image_paths=[image_path])
+    raw_output = ollama_chat_generate(prompt=prompt, model=model, image_paths=[image_path])
     parsed = extract_json_object(raw_output or "")
     if not parsed:
         return None, raw_output

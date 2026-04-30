@@ -50,7 +50,7 @@ Pro lokální běh MVP na běžném hardwaru jsme zhodnotili dvě nejlepší var
 V kontextu tohoto MVP:
 - ingest a retrieval pipeline se nemění,
 - mění se pouze backend/model a kvalita odpovědí,
-- není nutné přepisovat architekturu aplikace.
+- architektura aplikace zůstává stejná.
 
 ## Stručné doporučení
 
@@ -61,4 +61,3 @@ V kontextu tohoto MVP:
 Nejpraktičtější lokální postup:
 
 **4B/9B pro vývoj -> 27B jen pokud má lokální hardware rezervu**
-

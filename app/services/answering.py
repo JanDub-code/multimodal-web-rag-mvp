@@ -6,14 +6,14 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.services.audit import write_audit
 from app.services.model_usage import query_model_usage
-from app.services.multimodal import llm_chat_generate
+from app.services.multimodal import ollama_chat_generate
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-_LLM_UNAVAILABLE_MSG = (
-    "LLM backend is not available. Check the configured OpenAI-compatible endpoint and the '{}' model."
+_OLLAMA_UNAVAILABLE_MSG = (
+    "Ollama is not available. Check the configured endpoint and the '{}' model."
 )
 
 
@@ -67,11 +67,11 @@ def _audit_model_call(
 
 def answer_no_rag(query: str, db: Session | None = None, user_id: int | None = None) -> str:
     prompt = f"Answer briefly and clearly:\n{query}"
-    model_output = llm_chat_generate(prompt=prompt, model=settings.llm_model, image_paths=None, timeout=60)
+    model_output = ollama_chat_generate(prompt=prompt, model=settings.ollama_model, image_paths=None, timeout=60)
     _audit_model_call(
         db,
         user_id=user_id,
-        model=settings.llm_model,
+        model=settings.ollama_model,
         context="query.no_rag",
         status="ok" if model_output else "unavailable_or_error",
         image_count=0,
@@ -79,7 +79,7 @@ def answer_no_rag(query: str, db: Session | None = None, user_id: int | None = N
     )
     if model_output:
         return model_output.strip()
-    return _LLM_UNAVAILABLE_MSG.format(settings.llm_model)
+    return _OLLAMA_UNAVAILABLE_MSG.format(settings.ollama_model)
 
 
 def answer_rag(query: str, retrieved: list[dict], db: Session | None = None, user_id: int | None = None) -> dict:
@@ -115,8 +115,8 @@ def answer_rag(query: str, retrieved: list[dict], db: Session | None = None, use
     )
 
     image_paths = _collect_screenshot_paths(retrieved) if settings.vision_answer_enabled else []
-    model_name = (settings.llm_vision_model or settings.llm_model) if image_paths else settings.llm_model
-    model_output = llm_chat_generate(
+    model_name = (settings.ollama_vision_model or settings.ollama_model) if image_paths else settings.ollama_model
+    model_output = ollama_chat_generate(
         prompt=prompt,
         model=model_name,
         image_paths=image_paths or None,
@@ -133,7 +133,7 @@ def answer_rag(query: str, retrieved: list[dict], db: Session | None = None, use
     )
     if not model_output:
         return {
-            "answer": _LLM_UNAVAILABLE_MSG.format(model_name),
+            "answer": _OLLAMA_UNAVAILABLE_MSG.format(model_name),
             "citations": citations,
             "model_usage": query_model_usage(mode="rag", generation_model=model_name, vision_used=bool(image_paths)),
         }
