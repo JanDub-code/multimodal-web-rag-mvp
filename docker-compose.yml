@@ -1,4 +1,4 @@
-﻿services:
+services:
   postgres:
     image: postgres:16
     container_name: local-mvp-postgres
@@ -15,6 +15,7 @@
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   qdrant:
     image: qdrant/qdrant:v1.15.5
@@ -23,6 +24,7 @@
       - "6333:6333"
     volumes:
       - qdrant_data:/qdrant/storage
+    restart: unless-stopped
 
   migrate:
     build:
@@ -72,6 +74,7 @@
       interval: 15s
       timeout: 15s
       retries: 5
+    restart: unless-stopped
 
   frontend:
     build:
@@ -83,6 +86,7 @@
         condition: service_healthy
     ports:
       - "8080:80"
+    restart: unless-stopped
 
 volumes:
   pgdata:
