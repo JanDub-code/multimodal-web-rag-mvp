@@ -13,6 +13,22 @@ fi
 export DOCKER_LLM_BASE_URL="${DOCKER_LLM_BASE_URL:-http://host.docker.internal:1234/v1}"
 export DOCKER_EMBEDDING_BASE_URL="${DOCKER_EMBEDDING_BASE_URL:-http://host.docker.internal:11434}"
 
+verify_default_users() {
+  local user_count
+
+  user_count="$(
+    docker compose exec -T postgres psql -U app -d multimodal_mvp -tAc \
+      "SELECT count(*) FROM users WHERE username IN ('admin', 'curator', 'analyst', 'user');" |
+      tr -d '[:space:]'
+  )"
+
+  if [[ "$user_count" != "4" ]]; then
+    echo "[dev-up] ERROR: Default users were not initialized correctly. Found ${user_count:-0}/4 users."
+    echo "[dev-up] Try running: docker compose --profile tools run --rm --build migrate python -m scripts.init_db"
+    exit 1
+  fi
+}
+
 echo "[dev-up] Starting core services..."
 docker compose up -d postgres qdrant
 
@@ -22,8 +38,11 @@ docker compose --profile tools run --rm --build migrate
 echo "[dev-up] Ensuring default users..."
 docker compose --profile tools run --rm --build migrate python -m scripts.init_db
 
+echo "[dev-up] Verifying default users..."
+verify_default_users
+
 echo "[dev-up] Starting api and frontend..."
-docker compose up -d --build api frontend
+docker compose up -d --build --force-recreate api frontend
 
 echo
 echo "[dev-up] Done."
