@@ -198,7 +198,7 @@ export const mockComplianceHistory = [
 export const mockQueryResponse = {
   rag: {
     mode: 'rag',
-    answer: 'Na základě dostupných dokumentů je systém navržen tak, aby umožňoval multimodální vyhledávání a odpovídání na dotazy pomocí RAG (Retrieval Augmented Generation). Systém kombinuje textové chunky s vizuálními artefakty pro komplexní odpovědi.\n\nKlíčové komponenty:\n1. **Embedding pipeline** – převod textu na vektorové reprezentace\n2. **Retrieval engine** – vyhledávání relevantních dokumentů\n3. **LLM answering** – generování odpovědí s citacemi',
+    answer: 'Na základě dostupných dokumentů je systém navržen tak, aby umožňoval multimodální vyhledávání a odpovídání na dotazy pomocí RAG (Retrieval Augmented Generation). Systém kombinuje textové chunky s vizuálními artefakty pro komplexní odpovědi.\n\nKlíčové komponenty:\n1. **Embedding pipeline** – převod textu na vektorové reprezentace\n2. **Retrieval engine** – vyhledávání relevantních dokumentů\n3. **Ollama answering** – generování odpovědí s citacemi',
     citations: [
       {
         index: 1,
@@ -264,7 +264,7 @@ export const mockChatSessions = [
       {
         id: 'msg-2',
         role: 'ai',
-        content: 'RAG (Retrieval Augmented Generation) funguje připojením vyhledávací vrstvy před generativní LLM. Systém nejprve najde relevantní dokumenty a ty předloží modelu jako kontext.',
+        content: 'RAG (Retrieval Augmented Generation) funguje připojením vyhledávací vrstvy před generativní model v Ollamě. Systém nejprve najde relevantní dokumenty a ty předloží modelu jako kontext.',
         timestamp: '2026-04-08T10:25:05Z',
         citations: []
       },
