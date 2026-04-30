@@ -20,7 +20,7 @@ echo "[dev-up] Applying database migrations..."
 docker compose --profile tools run --rm migrate
 
 echo "[dev-up] Ensuring default users..."
-docker compose run --rm api python -m scripts.init_db
+docker compose --profile tools run --rm migrate python -m scripts.init_db
 
 echo "[dev-up] Starting api and frontend..."
 docker compose up -d api frontend

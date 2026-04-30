@@ -27,7 +27,7 @@
   migrate:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.migrate
     container_name: local-mvp-migrate
     command: ["alembic", "upgrade", "head"]
     env_file:
