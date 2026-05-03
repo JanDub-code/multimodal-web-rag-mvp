@@ -129,7 +129,7 @@ def refresh_stale_urls(db: Session, *, batch_size: int | None = None, trigger: s
                 "job_id": outcome.job_id,
             }
         )
-        if outcome.status in {"failed", "blocked_captcha"} and outcome.error:
+        if outcome.status in {"failed", "blocked_captcha"}:
             incident_types.append(outcome.status)
 
     status_counts = Counter(outcome.status for outcome in outcomes)

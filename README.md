@@ -164,6 +164,7 @@ Minimalni quality gate pro retrieval:
 - MRR@5 >= 0.30
 
 Skript vraci non-zero exit code, pokud gate neprojde.
+Kratky provozni postup je v `docs/eval_refresh_runbook.md`.
 
 ## Refresh workflow (re-ingest)
 
@@ -172,6 +173,7 @@ Metadata pro refresh rozhodovani jsou ulozena na urovni `source_urls` (URL, last
 
 Automaticky scheduler se spousti pri `REFRESH_SCHEDULER_ENABLED=true` a v intervalech `REFRESH_SCHEDULER_INTERVAL_SECONDS` kontroluje stale URL.
 Refresh job je idempotentni (prioritne aktualizuje existujici dokumenty, nezdvojuje chunky) a loguje auditni zaznam `refresh.batch` s pocty URL, uspesnosti a incidenty.
+Kratky provozni postup je v `docs/eval_refresh_runbook.md`.
 
 ## Compliance API
 

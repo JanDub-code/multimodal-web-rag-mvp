@@ -10,6 +10,12 @@ from app.db.models import SourceUrl
 settings = get_settings()
 
 
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def ensure_source_url(
     db: Session,
     *,
@@ -51,16 +57,16 @@ def effective_refresh_interval_minutes(row: SourceUrl) -> int:
 
 
 def is_stale(row: SourceUrl, now: datetime | None = None) -> bool:
-    reference = now or datetime.now(timezone.utc)
+    reference = _as_utc(now or datetime.now(timezone.utc))
     interval = effective_refresh_interval_minutes(row)
     last_success = row.last_successful_ingest_ts
     if last_success is None:
         return True
-    return reference - last_success >= timedelta(minutes=interval)
+    return reference - _as_utc(last_success) >= timedelta(minutes=interval)
 
 
 def recent_attempt_block(row: SourceUrl, now: datetime | None = None) -> bool:
     if row.last_attempt_ts is None:
         return False
-    reference = now or datetime.now(timezone.utc)
-    return reference - row.last_attempt_ts < timedelta(minutes=settings.refresh_retry_backoff_minutes)
+    reference = _as_utc(now or datetime.now(timezone.utc))
+    return reference - _as_utc(row.last_attempt_ts) < timedelta(minutes=settings.refresh_retry_backoff_minutes)

@@ -102,9 +102,9 @@ Definition of Done:
 - [ ] Logovat a auditovat refresh běhy (počet URL, úspěchy/chyby, incident typy, request/operation identifikátor).
 
 ### Stream C - Testy a provoz
-- [ ] Doplnit testy pro eval runner (stabilita výpočtu metrik a formát reportu).
-- [ ] Doplnit testy pro refresh workflow (re-ingest stejné URL, fallbacky, incident handling).
-- [ ] Doplnit krátký runbook: jak spustit eval, jak spustit ruční refresh a jak číst výstupy.
+- [x] Doplnit testy pro eval runner (stabilita výpočtu metrik a formát reportu).
+- [x] Doplnit testy pro refresh workflow (re-ingest stejné URL, fallbacky, incident handling).
+- [x] Doplnit krátký runbook: jak spustit eval, jak spustit ruční refresh a jak číst výstupy.
 
 Definition of Done:
 - existuje reprodukovatelná eval sada + skript + report metrik,
