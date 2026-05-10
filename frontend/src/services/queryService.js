@@ -87,6 +87,11 @@ function appendLocalSessionMessages(sessionId, queryText, aiMessage) {
   writeLocalSessions(sessions)
 }
 
+function deleteLocalSession(id) {
+  const sessions = readLocalSessions().filter((s) => s.id !== id)
+  writeLocalSessions(sessions)
+}
+
 export const queryService = {
   async getSessions() {
     if (useLocalSessionsFallback) {
@@ -100,6 +105,20 @@ export const queryService = {
       if (!shouldFallbackToLocal(error)) throw error
       useLocalSessionsFallback = true
       return readLocalSessions().map(toSessionListItem)
+    }
+  },
+
+  async deleteSession(id) {
+    if (useLocalSessionsFallback || String(id).startsWith('local-')) {
+      deleteLocalSession(id)
+      return
+    }
+    try {
+      await api.delete(`/chat/sessions/${id}`)
+    } catch (error) {
+      if (!shouldFallbackToLocal(error)) throw error
+      useLocalSessionsFallback = true
+      deleteLocalSession(id)
     }
   },
 

@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <v-container fluid class="pa-6">
     <div class="d-flex align-center justify-space-between mb-6">
       <h1 class="text-h4 font-weight-bold text-primary">Source Management</h1>
@@ -36,15 +36,27 @@
             <td class="py-3 font-weight-medium">{{ source.name }}</td>
             <td class="py-3 text-grey-darken-2">{{ source.base_url }}</td>
             <td class="py-3">
-              <v-btn
-                color="primary"
-                variant="tonal"
-                size="small"
-                prepend-icon="mdi-cloud-upload-outline"
-                @click="goToIngest(source)"
-              >
-                Run ingest
-              </v-btn>
+              <div class="d-flex align-center ga-2">
+                <v-btn
+                  color="primary"
+                  variant="tonal"
+                  size="small"
+                  prepend-icon="mdi-cloud-upload-outline"
+                  @click="goToIngest(source)"
+                >
+                  Run ingest
+                </v-btn>
+                <v-btn
+                  color="error"
+                  variant="tonal"
+                  size="small"
+                  icon
+                  @click="confirmDelete(source)"
+                  title="Smazat zdroj"
+                >
+                  <v-icon size="small">mdi-delete-outline</v-icon>
+                </v-btn>
+              </div>
             </td>
           </tr>
           <tr v-if="!loading && filteredSources.length === 0">
@@ -69,6 +81,21 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Confirm Delete Dialog -->
+    <v-dialog v-model="deleteDialog" max-width="420">
+      <v-card class="rounded-xl">
+        <v-card-title class="pa-6 pb-2 text-h6 font-weight-bold">Smazat zdroj</v-card-title>
+        <v-card-text class="px-6 py-2">
+          Opravdu chcete smazat zdroj <strong>{{ sourceToDelete?.name }}</strong>? Tato akce je nevratná.
+        </v-card-text>
+        <v-card-actions class="pa-6 pt-2">
+          <v-spacer />
+          <v-btn variant="outlined" class="rounded-lg px-4" @click="deleteDialog = false">Zrušit</v-btn>
+          <v-btn color="error" variant="flat" class="rounded-lg px-4" @click="deleteSource" :loading="deleting">Smazat</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
@@ -84,6 +111,9 @@ const saving = ref(false)
 const loading = ref(false)
 const error = ref('')
 const sources = ref([])
+const deleteDialog = ref(false)
+const deleting = ref(false)
+const sourceToDelete = ref(null)
 
 const newSource = ref({
   name: '',
@@ -135,6 +165,26 @@ function goToIngest(source) {
       url: source.base_url,
     },
   })
+}
+
+function confirmDelete(source) {
+  sourceToDelete.value = source
+  deleteDialog.value = true
+}
+
+async function deleteSource() {
+  if (!sourceToDelete.value) return
+  deleting.value = true
+  try {
+    await api.delete(`/ingest/sources/${sourceToDelete.value.id}`)
+    deleteDialog.value = false
+    sourceToDelete.value = null
+    await fetchSources()
+  } catch (err) {
+    error.value = `Failed to delete source: ${parseApiError(err)}`
+  } finally {
+    deleting.value = false
+  }
 }
 
 async function addSource() {

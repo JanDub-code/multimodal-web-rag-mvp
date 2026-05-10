@@ -135,6 +135,21 @@ def list_sources(user: User = Depends(require_roles("Admin", "Curator", "Analyst
     return [{"id": row.id, "name": row.name, "base_url": row.base_url} for row in rows]
 
 
+@router.delete("/sources/{source_id}", status_code=204)
+def delete_source(
+    source_id: int,
+    user: User = Depends(require_roles("Admin", "Curator")),
+    db: Session = Depends(get_db),
+):
+    source = db.get(Source, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    write_audit(db, action="source.delete", object_ref=f"source:{source_id}", user_id=user.id)
+    db.delete(source)
+    db.commit()
+    return None
+
+
 @router.post("/run")
 def ingest_url(
     payload: IngestRequest,

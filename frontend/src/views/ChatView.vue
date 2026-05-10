@@ -20,10 +20,24 @@
           :active="currentSessionId === session.id"
           @click="loadSession(session.id)"
           rounded="lg"
-          class="mb-1"
+          class="mb-1 session-item"
         >
           <template #prepend>
             <v-icon size="small">mdi-message-outline</v-icon>
+          </template>
+          <template #append>
+            <v-btn
+              icon
+              size="x-small"
+              variant="text"
+              color="error"
+              class="delete-session-btn"
+              :loading="deletingSessionId === session.id"
+              @click.stop="deleteSession(session.id)"
+              title="Smazat konverzaci"
+            >
+              <v-icon size="small">mdi-delete-outline</v-icon>
+            </v-btn>
           </template>
         </v-list-item>
         <div v-if="!sessions.length && !loadingSessions" class="text-caption text-center pa-4 text-muted">
@@ -215,6 +229,7 @@ const loadingSessions = ref(true)
 const loading = ref(false)
 const messagesContainer = ref(null)
 const showMobileHistory = ref(false)
+const deletingSessionId = ref(null)
 
 // Inputs
 const queryText = ref('')
@@ -262,6 +277,22 @@ function startNewSession() {
   currentSessionId.value = null
   messages.value = []
   queryText.value = ''
+}
+
+async function deleteSession(id) {
+  deletingSessionId.value = id
+  try {
+    await queryService.deleteSession(id)
+    sessions.value = sessions.value.filter((s) => s.id !== id)
+    if (currentSessionId.value === id) {
+      currentSessionId.value = null
+      messages.value = []
+    }
+  } catch (err) {
+    console.error('Failed to delete session', err)
+  } finally {
+    deletingSessionId.value = null
+  }
 }
 
 async function loadSession(id) {
@@ -425,6 +456,16 @@ function formatApiError(error) {
     &.sidebar-mobile-hidden {
       display: none !important;
     }
+  }
+}
+
+.session-item {
+  .delete-session-btn {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  &:hover .delete-session-btn {
+    opacity: 1;
   }
 }
 
