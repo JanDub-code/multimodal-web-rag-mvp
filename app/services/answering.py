@@ -6,15 +6,38 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.services.audit import write_audit
 from app.services.model_usage import query_model_usage
-from app.services.multimodal import ollama_chat_generate
+from app.services.multimodal import chat_generate
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-_OLLAMA_UNAVAILABLE_MSG = (
-    "Ollama is not available. Check the configured endpoint and the '{}' model."
+_GENERATION_UNAVAILABLE_MSG = (
+    "OpenCode generation is not available. Check the configured endpoint, API key and the '{}' model."
 )
+
+
+def _format_conversation_history(conversation_history: list[dict] | None) -> str:
+    lines: list[str] = []
+    for message in (conversation_history or [])[-8:]:
+        role = str(message.get("role") or "").strip().lower()
+        if role == "ai":
+            role = "assistant"
+        if role not in {"user", "assistant"}:
+            continue
+
+        content = str(message.get("content") or "").strip()
+        if not content:
+            continue
+        if len(content) > 1200:
+            content = f"{content[:1200].rstrip()}..."
+
+        label = "User" if role == "user" else "Assistant"
+        lines.append(f"{label}: {content}")
+
+    if not lines:
+        return ""
+    return "Previous conversation:\n" + "\n".join(lines)
 
 
 def _collect_screenshot_paths(retrieved: list[dict]) -> list[str]:
@@ -65,13 +88,24 @@ def _audit_model_call(
     )
 
 
-def answer_no_rag(query: str, db: Session | None = None, user_id: int | None = None) -> str:
-    prompt = f"Answer briefly and clearly:\n{query}"
-    model_output = ollama_chat_generate(prompt=prompt, model=settings.ollama_model, image_paths=None, timeout=60)
+def answer_no_rag(
+    query: str,
+    db: Session | None = None,
+    user_id: int | None = None,
+    model: str | None = None,
+    conversation_history: list[dict] | None = None,
+) -> str:
+    history_block = _format_conversation_history(conversation_history)
+    prompt = "Answer briefly and clearly."
+    if history_block:
+        prompt = f"{prompt}\n\n{history_block}"
+    prompt = f"{prompt}\n\nCurrent question:\n{query}"
+    model_name = model or settings.default_generation_model
+    model_output = chat_generate(prompt=prompt, model=model_name, image_paths=None, timeout=60)
     _audit_model_call(
         db,
         user_id=user_id,
-        model=settings.ollama_model,
+        model=model_name,
         context="query.no_rag",
         status="ok" if model_output else "unavailable_or_error",
         image_count=0,
@@ -79,10 +113,17 @@ def answer_no_rag(query: str, db: Session | None = None, user_id: int | None = N
     )
     if model_output:
         return model_output.strip()
-    return _OLLAMA_UNAVAILABLE_MSG.format(settings.ollama_model)
+    return _GENERATION_UNAVAILABLE_MSG.format(model_name)
 
 
-def answer_rag(query: str, retrieved: list[dict], db: Session | None = None, user_id: int | None = None) -> dict:
+def answer_rag(
+    query: str,
+    retrieved: list[dict],
+    db: Session | None = None,
+    user_id: int | None = None,
+    model: str | None = None,
+    conversation_history: list[dict] | None = None,
+) -> dict:
     if not retrieved:
         return {
             "answer": "No relevant documents found for this query.",
@@ -108,15 +149,18 @@ def answer_rag(query: str, retrieved: list[dict], db: Session | None = None, use
         )
 
     context = "\n\n".join(context_lines)
-    prompt = (
+    history_block = _format_conversation_history(conversation_history)
+    prompt_prefix = (
         "Use only provided context. If unsupported, say so. Include references [n]. "
-        "If screenshots are attached, use them only as supporting evidence for the cited passages.\n\n"
-        f"Question: {query}\n\nContext:\n{context}"
+        "If screenshots are attached, use them only as supporting evidence for the cited passages."
     )
+    if history_block:
+        prompt_prefix = f"{prompt_prefix}\n\n{history_block}"
+    prompt = f"{prompt_prefix}\n\nCurrent question: {query}\n\nContext:\n{context}"
 
-    image_paths = _collect_screenshot_paths(retrieved) if settings.vision_answer_enabled else []
-    model_name = (settings.ollama_vision_model or settings.ollama_model) if image_paths else settings.ollama_model
-    model_output = ollama_chat_generate(
+    image_paths = _collect_screenshot_paths(retrieved)
+    model_name = model or settings.default_generation_model
+    model_output = chat_generate(
         prompt=prompt,
         model=model_name,
         image_paths=image_paths or None,
@@ -125,7 +169,7 @@ def answer_rag(query: str, retrieved: list[dict], db: Session | None = None, use
     _audit_model_call(
         db,
         user_id=user_id,
-        model=model_name,
+        model=settings.vision_generation_model if image_paths else model_name,
         context="query.rag",
         status="ok" if model_output else "unavailable_or_error",
         image_count=len(image_paths),
@@ -133,7 +177,7 @@ def answer_rag(query: str, retrieved: list[dict], db: Session | None = None, use
     )
     if not model_output:
         return {
-            "answer": _OLLAMA_UNAVAILABLE_MSG.format(model_name),
+            "answer": _GENERATION_UNAVAILABLE_MSG.format(model_name),
             "citations": citations,
             "model_usage": query_model_usage(mode="rag", generation_model=model_name, vision_used=bool(image_paths)),
         }

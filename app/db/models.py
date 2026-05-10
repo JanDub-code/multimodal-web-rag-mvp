@@ -49,22 +49,6 @@ class Source(Base):
     created_ts: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
-class SourceUrl(Base):
-    __tablename__ = "source_urls"
-    __table_args__ = (
-        Index("ix_source_urls_source_url", "source_id", "url", unique=True),
-        Index("ix_source_urls_source_id", "source_id"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    source_id: Mapped[int] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"), nullable=False)
-    url: Mapped[str] = mapped_column(String(1000), nullable=False)
-    refresh_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    last_successful_ingest_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    last_attempt_ts: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_ts: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-
-
 class SystemSetting(Base):
     __tablename__ = "system_settings"
 

@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import re
+import mimetypes
 from pathlib import Path
 
 import requests
@@ -11,9 +12,11 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+ANTHROPIC_GO_MODELS = {"minimax-m2.7", "minimax-m2.5"}
 
-def resolve_ollama_base_url() -> str:
-    return settings.ollama_base_url.strip().rstrip("/")
+
+def resolve_opencode_go_base_url() -> str:
+    return settings.opencode_go_base_url.strip().rstrip("/")
 
 
 def encode_image_file(image_path: str | Path) -> str:
@@ -21,56 +24,150 @@ def encode_image_file(image_path: str | Path) -> str:
     return base64.b64encode(path.read_bytes()).decode("utf-8")
 
 
-def _build_chat_messages(prompt: str, image_paths: list[str] | None = None) -> list[dict[str, object]]:
-    resolved_images: list[str] = []
+def _build_openai_messages(prompt: str, image_paths: list[str] | None = None) -> list[dict[str, object]]:
+    content: list[dict[str, object]] = [{"type": "text", "text": prompt}]
     for image_path in image_paths or []:
         path = Path(image_path)
         if path.exists() and path.is_file():
-            resolved_images.append(encode_image_file(path))
+            mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime_type};base64,{encode_image_file(path)}"},
+                }
+            )
 
-    if not resolved_images:
+    if len(content) == 1:
         return [{"role": "user", "content": prompt}]
+    return [{"role": "user", "content": content}]
 
-    return [{"role": "user", "content": prompt, "images": resolved_images}]
+
+def _build_anthropic_content(prompt: str, image_paths: list[str] | None = None) -> list[dict[str, object]]:
+    content: list[dict[str, object]] = [{"type": "text", "text": prompt}]
+    for image_path in image_paths or []:
+        path = Path(image_path)
+        if not path.exists() or not path.is_file():
+            continue
+        media_type = mimetypes.guess_type(path.name)[0] or "image/png"
+        content.append(
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": encode_image_file(path),
+                },
+            }
+        )
+    return content
 
 
-def _extract_chat_response_text(payload: dict) -> str | None:
-    message = payload.get("message") or {}
-    content = message.get("content")
+def _normalize_go_model_id(model: str) -> str:
+    return model.removeprefix("opencode-go/").strip()
+
+
+def _select_go_model(model: str, image_paths: list[str] | None = None) -> str:
+    if image_paths:
+        return _normalize_go_model_id(settings.vision_generation_model)
+    return _normalize_go_model_id(model)
+
+
+def _extract_openai_text(payload: dict) -> str | None:
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    if not isinstance(choices, list) or not choices:
+        return None
+    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
     return content if isinstance(content, str) else None
 
 
-def ollama_chat_generate(
+def _extract_anthropic_text(payload: dict) -> str | None:
+    content = payload.get("content") if isinstance(payload, dict) else None
+    if not isinstance(content, list):
+        return None
+    parts = []
+    for item in content:
+        if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str):
+            parts.append(item["text"])
+    text = "\n".join(part.strip() for part in parts if part.strip()).strip()
+    return text or None
+
+
+def _go_headers(*, anthropic: bool = False) -> dict[str, str]:
+    if not settings.opencode_api_key:
+        raise RuntimeError("OPENCODE_API_KEY is not configured.")
+    headers = {
+        "Authorization": f"Bearer {settings.opencode_api_key}",
+        "Content-Type": "application/json",
+    }
+    if anthropic:
+        headers["x-api-key"] = settings.opencode_api_key
+        headers["anthropic-version"] = "2023-06-01"
+    return headers
+
+
+def opencode_go_chat_generate(
     prompt: str,
     model: str,
     image_paths: list[str] | None = None,
     timeout: int | None = None,
 ) -> str | None:
-    payload: dict[str, object] = {
-        "model": model,
-        "messages": _build_chat_messages(prompt, image_paths),
-        "stream": False,
-    }
+    selected_model = _select_go_model(model, image_paths)
+    base_url = resolve_opencode_go_base_url()
+    anthropic = selected_model in ANTHROPIC_GO_MODELS
+
+    if anthropic:
+        endpoint = f"{base_url}/messages"
+        payload: dict[str, object] = {
+            "model": selected_model,
+            "max_tokens": 4096,
+            "messages": [{"role": "user", "content": _build_anthropic_content(prompt, image_paths)}],
+        }
+    else:
+        endpoint = f"{base_url}/chat/completions"
+        payload = {
+            "model": selected_model,
+            "messages": _build_openai_messages(prompt, image_paths),
+        }
 
     try:
         response = requests.post(
-            f"{resolve_ollama_base_url()}/api/chat",
+            endpoint,
             json=payload,
+            headers=_go_headers(anthropic=anthropic),
             timeout=timeout or settings.vision_timeout_seconds,
         )
         response.raise_for_status()
-        return _extract_chat_response_text(response.json())
+        data = response.json()
+        return _extract_anthropic_text(data) if anthropic else _extract_openai_text(data)
+    except RuntimeError as exc:
+        logger.error(str(exc))
+        return None
     except requests.ConnectionError:
-        logger.error("Ollama is not reachable at %s.", resolve_ollama_base_url())
+        logger.error("OpenCode Go backend is not reachable at %s.", base_url)
         return None
     except requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else "unknown"
         response_body = (exc.response.text or "")[:500] if exc.response is not None else ""
-        logger.error("Ollama request failed with status %s: %s", status_code, response_body)
+        logger.error("OpenCode Go request failed with status %s: %s", status_code, response_body)
         return None
     except Exception:
-        logger.exception("Ollama request failed")
+        logger.exception("OpenCode Go request failed")
         return None
+
+
+def chat_generate(
+    prompt: str,
+    model: str,
+    image_paths: list[str] | None = None,
+    timeout: int | None = None,
+) -> str | None:
+    provider = settings.generation_provider.strip().lower()
+    if provider not in {"opencode_go", "opencode-go"}:
+        logger.error("Unsupported generation provider '%s'. Expected opencode_go.", provider)
+        return None
+
+    return opencode_go_chat_generate(prompt=prompt, model=model, image_paths=image_paths, timeout=timeout)
 
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL | re.IGNORECASE)
@@ -156,7 +253,7 @@ def extract_structured_document_from_image(
     if not settings.vision_extract_on_ingest:
         return None, None
 
-    model = settings.ollama_vision_model or settings.ollama_model
+    model = settings.default_generation_model
     prompt = (
         "You are extracting a structured canonical document from a webpage screenshot. "
         "Return strict JSON only with keys: title, visual_summary, sections, tables. "
@@ -170,7 +267,7 @@ def extract_structured_document_from_image(
         f"OCR hint: {ocr_text[:settings.vision_prompt_max_context_chars]}"
     )
 
-    raw_output = ollama_chat_generate(prompt=prompt, model=model, image_paths=[image_path])
+    raw_output = chat_generate(prompt=prompt, model=model, image_paths=[image_path])
     parsed = extract_json_object(raw_output or "")
     if not parsed:
         return None, raw_output

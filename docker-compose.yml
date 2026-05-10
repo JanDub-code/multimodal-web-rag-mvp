@@ -1,4 +1,4 @@
-services:
+﻿services:
   postgres:
     image: postgres:16
     container_name: local-mvp-postgres
@@ -37,8 +37,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/multimodal_mvp
       QDRANT_URL: http://qdrant:6333
-      OLLAMA_BASE_URL: ${DOCKER_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      EMBEDDING_BASE_URL: ${DOCKER_EMBEDDING_BASE_URL:-http://host.docker.internal:11434}
+      OPENCODE_API_KEY_RUNTIME: ${OPENCODE_API_KEY_RUNTIME:-${OPENCODE_API_KEY:-}}
     depends_on:
       postgres:
         condition: service_healthy
@@ -56,8 +55,8 @@ services:
       APP_HOST: 0.0.0.0
       DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/multimodal_mvp
       QDRANT_URL: http://qdrant:6333
-      OLLAMA_BASE_URL: ${DOCKER_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      EMBEDDING_BASE_URL: ${DOCKER_EMBEDDING_BASE_URL:-http://host.docker.internal:11434}
+      RETRIEVAL_WARMUP_ON_STARTUP: "true"
+      OPENCODE_API_KEY_RUNTIME: ${OPENCODE_API_KEY_RUNTIME:-${OPENCODE_API_KEY:-}}
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,11 +68,13 @@ services:
       - "8000:8000"
     volumes:
       - ./data/evidence:/app/data/evidence
+      - fastembed_cache:/root/.cache
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
       interval: 15s
       timeout: 15s
       retries: 5
+      start_period: 120s
     restart: unless-stopped
 
   frontend:
@@ -91,3 +92,4 @@ services:
 volumes:
   pgdata:
   qdrant_data:
+  fastembed_cache:

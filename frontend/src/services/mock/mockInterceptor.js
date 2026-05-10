@@ -321,7 +321,7 @@ export function useMockInterceptor(axiosInstance) {
           api: { status: 'up' },
           postgres: { status: 'up' },
           qdrant: { status: 'up' },
-          ollama: { status: 'up', required: false },
+          generation: { provider: 'opencode_go', configured: true, required: false },
         },
       }
     }

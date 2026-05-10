@@ -1,10 +1,8 @@
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
 
-import requests
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,8 +19,6 @@ from app.api.routes_runtime import router as runtime_router
 from app.api.routes_settings import router as settings_router
 from app.config import get_settings
 from app.db.session import engine
-from app.services.multimodal import resolve_ollama_base_url
-from app.services.refresh import refresh_scheduler_loop
 from app.services.request_context import get_request_id, reset_request_id, set_request_id
 
 
@@ -43,6 +39,16 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+def _check_postgres() -> dict:
+    try:
+        with engine.connect() as conn:
+            conn.execute(sa_text("SELECT 1"))
+        return {"status": "up"}
+    except Exception:
+        logger.exception("Postgres health check failed")
+        return {"status": "down", "error": "internal_error"}
+
+
 def _check_qdrant() -> dict:
     try:
         from app.services.retrieval import get_qdrant
@@ -54,48 +60,20 @@ def _check_qdrant() -> dict:
         return {"status": "down", "error": "internal_error"}
 
 
-def _check_postgres() -> dict:
-    try:
-        with engine.connect() as conn:
-            conn.execute(sa_text("SELECT 1"))
-        return {"status": "up"}
-    except Exception:
-        logger.exception("Postgres health check failed")
-        return {"status": "down", "error": "internal_error"}
-
-
-def _check_ollama_backend() -> dict:
-    try:
-        response = requests.get(
-            f"{resolve_ollama_base_url()}/api/tags",
-            timeout=3,
-        )
-        if response.ok:
-            return {"status": "up"}
-        return {"status": "down", "error": f"http_status:{response.status_code}"}
-    except Exception as exc:
-        return {"status": "down", "error": str(exc)}
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if settings.app_secret_key in {"change-me", "change-me-in-production"}:
         logger.warning("APP_SECRET_KEY is still set to a default placeholder. Change it in .env for production.")
-    stop_event: asyncio.Event | None = None
-    task: asyncio.Task | None = None
-    if settings.refresh_scheduler_enabled:
-        stop_event = asyncio.Event()
-        task = asyncio.create_task(refresh_scheduler_loop(stop_event))
-    try:
-        yield
-    finally:
-        if stop_event and task:
-            stop_event.set()
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+    if settings.retrieval_warmup_on_startup:
+        try:
+            from app.services.embeddings import embed_texts
+
+            logger.info("Warming retrieval embedding model '%s'", settings.embedding_model)
+            embed_texts(["retrieval warmup"])
+            logger.info("Retrieval embedding model is ready")
+        except Exception:
+            logger.exception("Retrieval embedding warmup failed; first RAG query may be slow or unavailable")
+    yield
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
@@ -147,7 +125,6 @@ def health_ready():
 def _health_response() -> JSONResponse:
     postgres = _check_postgres()
     qdrant = _check_qdrant()
-    ollama = _check_ollama_backend()
 
     required_ok = postgres["status"] == "up" and qdrant["status"] == "up"
     body = {
@@ -156,7 +133,12 @@ def _health_response() -> JSONResponse:
             "api": {"status": "up"},
             "postgres": postgres,
             "qdrant": qdrant,
-            "ollama": {"required": False, **ollama},
+            "generation": {
+                "required": False,
+                "provider": settings.generation_provider,
+                "endpoint": settings.opencode_go_base_url,
+                "configured": bool(settings.opencode_api_key),
+            },
         },
     }
     return JSONResponse(status_code=200 if required_ok else 503, content=body)

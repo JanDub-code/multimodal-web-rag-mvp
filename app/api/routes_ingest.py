@@ -6,13 +6,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.routes_auth import require_roles
-from app.db.models import Document, Source, User
+from app.db.models import Source, User
 from app.db.session import get_db
 from app.services.audit import write_audit
 from app.services.compliance import resolve_sensitive_action_compliance
 from app.services.ingest import run_ingest
 from app.services.model_usage import ingest_model_usage
-from app.services.refresh import refresh_url as run_refresh
 from app.services.url_safety import UnsafeUrlError, validate_public_url
 
 logger = logging.getLogger(__name__)
@@ -33,18 +32,6 @@ class IngestRequest(BaseModel):
     operation_id: str | None = Field(default=None, max_length=160)
     batch_id: str | None = Field(default=None, max_length=160)
     row_id: int | None = Field(default=None, ge=1)
-    compliance_confirmed: bool | None = None
-    compliance_reason: str | None = Field(default=None, max_length=500)
-    compliance_bypassed: bool | None = None
-
-
-class RefreshRequest(BaseModel):
-    source_id: int
-    url: str = Field(..., min_length=1, max_length=2000)
-    operation_id: str | None = Field(default=None, max_length=160)
-    batch_id: str | None = Field(default=None, max_length=160)
-    row_id: int | None = Field(default=None, ge=1)
-    refresh_interval_minutes: int | None = Field(default=None, ge=1)
     compliance_confirmed: bool | None = None
     compliance_reason: str | None = Field(default=None, max_length=500)
     compliance_bypassed: bool | None = None
@@ -175,7 +162,7 @@ def ingest_url(
         result = run_ingest(db=db, source_id=payload.source_id, url=payload.url)
     except Exception as exc:
         logger.exception("Ingest failed for source %d", payload.source_id)
-        model_usage = ingest_model_usage(embedding_used=False, vision_used=None)
+        model_usage = ingest_model_usage(index_used=False, vision_used=None)
         write_audit(
             db,
             action="ingest.failed",
@@ -200,7 +187,7 @@ def ingest_url(
 
     action = "ingest.blocked" if result.get("status") == "blocked_captcha" else "ingest.completed"
     model_usage = result.get("model_usage") or ingest_model_usage(
-        embedding_used=result.get("status") == "completed",
+        index_used=result.get("status") == "completed",
         vision_used=None,
     )
     write_audit(
@@ -222,83 +209,6 @@ def ingest_url(
     db.commit()
     return {
         **result,
-        "operation_id": compliance.operation_id,
-        "batch_id": payload.batch_id,
-        "row_id": payload.row_id,
-        "compliance_confirmed": compliance.compliance_confirmed,
-        "compliance_bypassed": compliance.compliance_bypassed,
-        "compliance_reason": compliance.compliance_reason,
-        "model_usage": model_usage,
-    }
-
-
-@router.post("/refresh")
-def refresh_url(
-    payload: RefreshRequest,
-    user: User = Depends(require_roles("Admin", "Curator")),
-    db: Session = Depends(get_db),
-):
-    compliance = resolve_sensitive_action_compliance(
-        db=db,
-        user=user,
-        action_type="ingest.refresh",
-        operation_id=payload.operation_id,
-        compliance_confirmed=payload.compliance_confirmed,
-        compliance_reason=payload.compliance_reason,
-        compliance_bypassed=payload.compliance_bypassed,
-    )
-
-    _validate_url_or_422(payload.url)
-    source = db.get(Source, payload.source_id)
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-    _validate_source_permission_or_422(source)
-    _validate_ingest_url_matches_source_or_422(source, payload.url)
-
-    existing = (
-        db.query(Document)
-        .filter(Document.source_id == payload.source_id, Document.url == payload.url)
-        .first()
-    )
-    if not existing:
-        raise HTTPException(status_code=404, detail="URL has not been ingested yet. Use /api/ingest/run first.")
-
-    outcome = run_refresh(
-        db,
-        source_id=payload.source_id,
-        url=payload.url,
-        refresh_interval_minutes=payload.refresh_interval_minutes,
-        trigger="manual",
-    )
-
-    status = outcome.status
-    action = "refresh.completed" if status == "completed" else "refresh.skipped" if status.startswith("skipped") else "refresh.failed"
-    model_usage = ingest_model_usage(embedding_used=status == "completed", vision_used=None)
-    write_audit(
-        db,
-        action=action,
-        object_ref=f"source:{payload.source_id}",
-        user_id=user.id,
-        metadata={
-            "status": status,
-            "job_id": outcome.job_id,
-            "error": outcome.error,
-            "url": payload.url,
-            "refresh_interval_minutes": payload.refresh_interval_minutes,
-            "operation_id": compliance.operation_id,
-            "batch_id": payload.batch_id,
-            "row_id": payload.row_id,
-            "compliance_confirmed": compliance.compliance_confirmed,
-            "compliance_bypassed": compliance.compliance_bypassed,
-            "compliance_reason": compliance.compliance_reason,
-            "model_usage": model_usage,
-        },
-    )
-    db.commit()
-    return {
-        "status": status,
-        "job_id": outcome.job_id,
-        "error": outcome.error,
         "operation_id": compliance.operation_id,
         "batch_id": payload.batch_id,
         "row_id": payload.row_id,

@@ -198,7 +198,7 @@ export const mockComplianceHistory = [
 export const mockQueryResponse = {
   rag: {
     mode: 'rag',
-    answer: 'Na základě dostupných dokumentů je systém navržen tak, aby umožňoval multimodální vyhledávání a odpovídání na dotazy pomocí RAG (Retrieval Augmented Generation). Systém kombinuje textové chunky s vizuálními artefakty pro komplexní odpovědi.\n\nKlíčové komponenty:\n1. **Embedding pipeline** – převod textu na vektorové reprezentace\n2. **Retrieval engine** – vyhledávání relevantních dokumentů\n3. **Ollama answering** – generování odpovědí s citacemi',
+    answer: 'Na základě dostupných dokumentů je systém navržen tak, aby umožňoval multimodální vyhledávání a odpovídání na dotazy pomocí RAG (Retrieval Augmented Generation). Systém kombinuje textové chunky s vizuálními artefakty pro komplexní odpovědi.\n\nKlíčové komponenty:\n1. **Embedding pipeline** – převod textu na vektorové reprezentace přes CPU FastEmbed\n2. **Retrieval engine** – vyhledávání relevantních dokumentů v Qdrantu\n3. **OpenCode answering** – generování odpovědí s citacemi',
     citations: [
       {
         index: 1,

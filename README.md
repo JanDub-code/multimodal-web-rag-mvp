@@ -1,209 +1,121 @@
 # Local Multimodal MVP
 
 Lokalni MVP pro ingest webovych stranek a dotazovani ve dvou rezimech:
-- `rag`: retrieval z Qdrantu + odpoved s citacemi
-- `no-rag`: prime volani Ollama modelu bez retrieval kroku
 
-Aktualni inference backend pro text a vision je Ollama API na `http://127.0.0.1:11434` s textovym i vision modelem `qwen3.5:2b`.
+- `rag`: vektorovy retrieval z Qdrantu + odpoved pres OpenCode
+- `no-rag`: prime volani vybraneho OpenCode modelu bez retrieval kroku
 
-Embedding backend bezi pres stejnou Ollama instanci na `http://127.0.0.1:11434` s default modelem `qwen3-embedding:8b`.
+V runtime uz neni Ollama, vlastni gateway ani lokalni `opencode serve`. Generovani odpovedi jde primo z FastAPI backendu na OpenCode Go API, backend proto potrebuje `OPENCODE_API_KEY`. RAG retrieval pouziva lokalni CPU embedding pres FastEmbed/ONNX a uklada vektory do Qdrantu.
 
-## Architektonicka realita
+## Architektura
 
-- FastAPI aplikace (`api`) s UI strankami `/` a `/query`
-- PostgreSQL pro metadata, auth, audit, ingest a incidenty
-- Qdrant pro embeddingy a retrieval
+- FastAPI aplikace (`api`)
+- Vue frontend (`frontend`)
+- PostgreSQL pro metadata, auth, audit, ingest, incidenty, dokumenty a chunky
+- Qdrant pro vektorovy index
 - evidence artefakty v `./data/evidence`
-- Ollama jako text/vision inference i embedding backend
-- Alembic migrace pres compose sluzbu `migrate`
+- OpenCode Go API pro generovani textu a vision fallback
+- FastEmbed CPU model `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` pro RAG embeddingy
 
-## Co je implementovano
+## Modely v chatu
 
-- ingest URL do KB s fallback strategii `HTML -> RENDERED_DOM -> SCREENSHOT`
-- OCR doplneni textu ze screenshotu
-- volitelna vision extrakce pri ingestu do sekci a tabulek
-- canonical dokument, chunking (`text` + `table`) a embeddingy do Qdrantu
-- `rag` a `no-rag` query flow
-- compliance enforcement flow (`Dev Mode` bypass vs `Enforcement ON`)
-- audit log vcetne eventu `model.call`
-- incident flow (`captcha`, `fetch_error`, `render_error`, `parse_error`, `policy_error`, `ingest_failure`)
-- request correlation pres `X-Request-ID`
+UI nabizi pro RAG i no-RAG:
 
-## Quick start
+- `DeepSeek V4 Flash`
+- `MiniMax M2.7`
+- `MiniMax M2.5`
+- `Kimi K2.5 Vision`
 
-1. Spust Ollamu a stahni text/vision i embedding model:
-   ```bash
-   ollama serve
-   ollama pull qwen3.5:2b
-   ollama pull qwen3-embedding:8b
-   ```
-2. Zkopiruj `.env.example` na `.env`.
-3. Spust `./scripts/dev-up.sh`.
-4. Otevri:
-   - `http://127.0.0.1:8080/`
-   - `http://127.0.0.1:8080/query`
-   - `http://127.0.0.1:8000/docs`
-   - `http://127.0.0.1:8000/health`
+Backend povoluje pouze modely s prefixem `opencode-go/` a vola Go endpoint (`OPENCODE_GO_BASE_URL`).
 
-Podrobny navod je v `OLLAMA_SETUP.md`.
+Pokud jsou k odpovedi pripojene screenshoty, backend pouzije `VISION_GENERATION_MODEL` a vola Go endpoint (vision fallback).
 
-### Prihlaseni (dev)
+## Konfigurace
 
-Login formular obsahuje prepinac uctu:
-- `Admin` (plny pristup)
-- `Curator` (ingest + zdroje)
-- `Analyst` (dotazy + analyza)
-- `User` (dotazy)
+Minimalni `.env`:
 
-### Ingest workflow (UI)
+```env
+APP_NAME=Local Multimodal MVP
+APP_HOST=127.0.0.1
+APP_PORT=8000
+APP_SECRET_KEY=change-me-in-production
 
-1. Otevri `Sprava zdroju` a pridej zdroj.
-2. Po ulozeni se muzes rovnou prepnout na `Ingest` (automaticky, nebo pres tlacitko `Run ingest` u zdroje).
-3. Na strance `/ingest` zkontroluj predvyplneny zdroj + URL a klikni `Run ingest`.
+DATABASE_URL=postgresql+psycopg://app:app@localhost:5432/multimodal_mvp
+QDRANT_URL=http://localhost:6333
+QDRANT_COLLECTION=chunks_fastembed_multilingual_minilm_384
 
-## Runtime
+EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+EMBEDDING_DIMENSIONS=384
+DEFAULT_GENERATION_MODEL=opencode-go/deepseek-v4-flash
+VISION_GENERATION_MODEL=opencode-go/kimi-k2.5
+GENERATION_PROVIDER=opencode_go
+OPENCODE_GO_BASE_URL=https://opencode.ai/zen/go/v1
+OPENCODE_API_KEY=
 
-Docker stack spousti:
+VISION_EXTRACT_ON_INGEST=false
+VISION_MAX_IMAGES=2
+VISION_TIMEOUT_SECONDS=90
+VISION_PROMPT_MAX_CONTEXT_CHARS=3000
+FETCH_VERIFY_SSL=true
+
+EVIDENCE_DIR=./data/evidence
+SCREENSHOT_DIR=./data/evidence/screenshots
+DOM_SNAPSHOT_DIR=./data/evidence/dom
+
+ACCESS_TOKEN_EXPIRE_MINUTES=480
+REFRESH_TOKEN_EXPIRE_MINUTES=43200
+QUALITY_THRESHOLD_CHARS=300
+RETRIEVAL_MIN_SCORE=0.25
+COMPLIANCE_ENFORCEMENT=false
+```
+
+Pred realnym dotazovanim nastav na backendu `OPENCODE_API_KEY`. Lokalni `opencode serve` se nepouziva.
+
+Pro Docker Compose muzes drzet secret mimo repo a predat ho pri startu:
+
+```bash
+OPENCODE_API_KEY='sk-...' ./scripts/dev-up.sh
+```
+
+Alternativne muzes pouzit runtime override:
+
+```bash
+OPENCODE_API_KEY_RUNTIME='sk-...' ./scripts/dev-up.sh
+```
+
+V kontejneru ma runtime override prednost pred hodnotou z `.env`, takze lokalni soubor zustava jen jako fallback.
+
+## Start
+
+```bash
+./scripts/dev-up.sh
+```
+
+Oteviraci URL:
+
+- frontend: `http://127.0.0.1:8080`
+- API: `http://127.0.0.1:8000`
+- health: `http://127.0.0.1:8000/health`
+
+Docker stack spousti jen:
+
 - `postgres`
 - `qdrant`
 - `migrate`
 - `api`
 - `frontend`
 
-Ollama bezi mimo Docker. Kontejner `api` se na hosta pripojuje pres:
-- `DOCKER_OLLAMA_BASE_URL`, default `http://host.docker.internal:11434`
-- `DOCKER_EMBEDDING_BASE_URL`, default `http://host.docker.internal:11434`
+## RAG embedding
 
-## Klicova konfigurace
+RAG vola lokalni CPU embedding model pres FastEmbed. Nejde pres Ollamu. Pri ingestu se chunky embednou do Qdrantu, pri dotazu se embedne query stejnym modelem a vybrane chunky se poslou do OpenCode modelu jako kontext.
 
-- `OLLAMA_BASE_URL`: Ollama base URL pro lokalni beh mimo Docker
-- `DOCKER_OLLAMA_BASE_URL`: stejny endpoint pro kontejnery
-- `OLLAMA_MODEL`: textovy model, default `qwen3.5:2b`
-- `OLLAMA_VISION_MODEL`: multimodalni model pro screenshoty, default `qwen3.5:2b`
-- `EMBEDDING_BASE_URL`: Ollama base URL pro lokalni embedding mimo Docker, default `http://127.0.0.1:11434`
-- `DOCKER_EMBEDDING_BASE_URL`: Ollama endpoint pro kontejnery, default `http://host.docker.internal:11434`
-- `EMBEDDING_MODEL`: embedding model pro lokalni retrieval, default `qwen3-embedding:8b`
-- `EMBEDDING_DIMENSIONS`: pozadovana vystupni dimenze embeddingu, default `4096`
-- `QDRANT_COLLECTION`: kolekce pro vektory. Default `chunks_qwen3_embedding_8b_4096`
-- `VISION_ANSWER_ENABLED`: pripoji screenshoty do RAG odpovedi, default `true`
-- `VISION_EXTRACT_ON_INGEST`: zapne strukturovanou vision extrakci pri ingestu, default `true`
-- `COMPLIANCE_ENFORCEMENT`: `false` = Dev Mode bypass (akce bezi, audit nese bypass flag), `true` = API vyzaduje potvrzeni pro `ingest`/`query`
+Vychozi model je `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, 384 dimenzi. Je to kompromis: dost maly na CPU, porad pouzitelny pro CZ/EN retrieval.
 
-Pokud pouzivas textovy model bez podpory obrazu, vypni vision volby (`VISION_ANSWER_ENABLED=false`, `VISION_EXTRACT_ON_INGEST=false`) a `OLLAMA_VISION_MODEL` nastav prazdne.
+## Runtime API
 
-Pri zmene `EMBEDDING_MODEL` nebo `EMBEDDING_DIMENSIONS` pouzij novou `QDRANT_COLLECTION` a proved reingest. Aplikace existujici kolekci s jinou dimenzi automaticky nemaze.
+- `GET /api/runtime/models` vrati aktualni mapovani modelu a retrieval vrstvy.
+- `GET /api/query/models` vrati modely dostupne v chat UI.
+- `POST /api/query/` podporuje `mode`, `top_k`, `model` a `conversation_history`.
+- `POST /api/ingest/run` uklada canonical dokument a chunky do PostgreSQL.
 
-## Runtime modely
-
-- `GET /api/runtime/models` (`Admin`): vrati aktualni mapovani modelu na akce.
-- `POST /api/query/` vraci `model_usage` pro `no-rag` i `rag`.
-- `POST /api/ingest/run` vraci `model_usage` pro embedding a pripadnou vision extrakci.
-
-## Embedding model decision
-
-Porovnane kandidaty pro CZ/EN retrieval pres Ollamu:
-
-| Kandidat | Role | Tradeoff |
-|---|---|---|
-| `qwen3-embedding:0.6b` | low-resource fallback | nejrychlejsi a nejmensi, ale nizsi rezerva pro narocnejsi multijazycny retrieval |
-| `qwen3-embedding:4b` | kompromis | lepsi kvalita nez 0.6B, nizsi pametove naroky nez 8B |
-| `qwen3-embedding:8b` | default | nejlepsi kvalita z kandidatu pro CZ/EN a dlouhy kontext, za cenu vyssi RAM/VRAM a latence |
-
-Vychozi volba je `qwen3-embedding:8b`, protoze prioritou MVP je kvalita retrievalu a citaci. Pokud lokalni stroj nestiha ingest/query latenci, nejblizsi fallback je `qwen3-embedding:4b`.
-
-### Benchmark
-
-Benchmark runner pouziva lokalne ingestovane chunky, samostatne Qdrant benchmark kolekce a dotazy z JSON souboru:
-
-```bash
-python -m scripts.benchmark_embeddings \
-  --queries reports/embedding_eval_queries.json \
-  --models qwen3-embedding:0.6b qwen3-embedding:4b qwen3-embedding:8b \
-  --top-k 5 \
-  --readme-update README.md
-```
-
-Format dotazu:
-
-```json
-[
-  {
-    "query": "Jak system uklada evidence artefakty?",
-    "expected_url_contains": "example.com/docs/evidence"
-  },
-  {
-    "query": "How are citations linked to retrieved chunks?",
-    "expected_doc_id": 12
-  }
-]
-```
-
-<!-- EMBEDDING_BENCHMARK_TABLE_START -->
-| Model | Dimenze | Hit@5 | MRR@5 | p50 ms | p95 ms | Model MB | Loaded RAM MB | VRAM MB | CPU % | Poznamka |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| `qwen3-embedding:0.6b` | 1024 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | spustit na stroji s Ollamou a lokalne ingestovanymi daty |
-| `qwen3-embedding:4b` | 2560 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | spustit na stroji s Ollamou a lokalne ingestovanymi daty |
-| `qwen3-embedding:8b` | 4096 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | default pro MVP |
-<!-- EMBEDDING_BENCHMARK_TABLE_END -->
-
-## Retrieval eval (Recall@k, MRR@k)
-
-Eval dataset pro CZ/EN dotazy je v `reports/retrieval_eval_dataset.json`. Obsahuje real-world prompty a ocekavana URL/chunky (uprav podle konkretniho knowledge base).
-
-Runner skript `scripts/eval_retrieval.py` meri:
-- Recall@k a MRR@k nad aktualni retrieval pipeline (`search_top_k`)
-- latenci (p50/p95)
-
-Output se uklada do verzovanych reportu `reports/retrieval_eval_YYYYMMDD_HHMMSS.json`.
-V repozitari je ulozen placeholder report `reports/retrieval_eval_2026-04-30.json` pro udrzeni historie (nahrazuje se realnym behy skriptu).
-
-### Quality gate
-
-Minimalni quality gate pro retrieval:
-- Recall@5 >= 0.60
-- MRR@5 >= 0.30
-
-Skript vraci non-zero exit code, pokud gate neprojde.
-Kratky provozni postup je v `docs/eval_refresh_runbook.md`.
-
-## Refresh workflow (re-ingest)
-
-Refresh workflow je explicitne dostupny na `POST /api/ingest/refresh` a pouziva stejny ingest pipeline bez nutnosti rucniho mazani dokumentu.
-Metadata pro refresh rozhodovani jsou ulozena na urovni `source_urls` (URL, last_successful_ingest_ts, refresh_interval_minutes).
-
-Automaticky scheduler se spousti pri `REFRESH_SCHEDULER_ENABLED=true` a v intervalech `REFRESH_SCHEDULER_INTERVAL_SECONDS` kontroluje stale URL.
-Refresh job je idempotentni (prioritne aktualizuje existujici dokumenty, nezdvojuje chunky) a loguje auditni zaznam `refresh.batch` s pocty URL, uspesnosti a incidenty.
-Kratky provozni postup je v `docs/eval_refresh_runbook.md`.
-
-## Compliance API
-
-- `GET /api/compliance/mode`: vrati aktualni enforcement rezim.
-- `PUT /api/compliance/mode`: prepne enforcement (`admin` role).
-- `GET /api/compliance/history`: vrati historii compliance potvrzeni/bypass.
-- `POST /api/compliance/confirm`: zapise explicitni potvrzeni/bypass.
-
-`POST /api/query/` a `POST /api/ingest/run` podporuji:
-- `operation_id` (volitelne): pokud chybi, backend vytvori fallback a vrati ho v response.
-- `compliance_confirmed` (bool), `compliance_reason` (string), `compliance_bypassed` (bool).
-
-## Health a readiness
-
-- required komponenty: `postgres`, `qdrant`
-- optional komponenta: `ollama`
-- `GET /health` a `GET /health/ready` vraci `200`, kdyz bezi required komponenty
-- pokud je Ollama vypnuta, API zustane `degraded` jen tehdy, kdyz spadne PostgreSQL nebo Qdrant
-
-## Testy
-
-Spusteni smoke testu:
-
-```bash
-pytest
-```
-
-## Souvisejici dokumenty
-
-- `OLLAMA_SETUP.md`
-- `Architektura_systemu_2026-04-02.md`
-- `TODO.md`
-- `VYBER_MODELU_QWEN35.md`
+Podrobne rozhodnuti a tok pres OpenCode Go je v `OPENCODE_GO_ARCHITECTURE.md`.

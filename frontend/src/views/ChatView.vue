@@ -51,6 +51,17 @@
               style="min-width: 180px"
             />
             <v-select
+              v-model="selectedModel"
+              :items="modelOptions"
+              item-title="label"
+              item-value="value"
+              density="compact"
+              variant="outlined"
+              hide-details
+              style="min-width: 230px"
+              :menu-props="{ maxHeight: 480 }"
+            />
+            <v-select
               v-model="topK"
               :items="[3, 5, 10, 15]"
               prefix="Top "
@@ -68,7 +79,7 @@
             <v-btn icon="mdi-menu" variant="text" @click="showMobileHistory = !showMobileHistory" />
             <v-btn color="primary" prepend-icon="mdi-plus" variant="flat" @click="startNewSession" class="text-none">Nová konverzace</v-btn>
           </div>
-          <div class="d-flex align-center ga-2">
+          <div class="d-flex align-center ga-2 flex-wrap">
             <v-select
               v-model="mode"
               :items="modeOptions"
@@ -78,6 +89,17 @@
               variant="outlined"
               hide-details
               class="flex-grow-1"
+            />
+            <v-select
+              v-model="selectedModel"
+              :items="modelOptions"
+              item-title="label"
+              item-value="value"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="flex-grow-1"
+              :menu-props="{ maxHeight: 480 }"
             />
             <v-select
               v-model="topK"
@@ -198,10 +220,18 @@ const showMobileHistory = ref(false)
 const queryText = ref('')
 const mode = ref('rag')
 const topK = ref(5)
+const selectedModel = ref('opencode-go/deepseek-v4-flash')
 
 const modeOptions = [
   { label: 'RAG Mód', value: 'rag' },
   { label: 'No-RAG Mód', value: 'no-rag' },
+]
+
+const modelOptions = [
+  { label: 'DeepSeek V4 Flash', value: 'opencode-go/deepseek-v4-flash' },
+  { label: 'MiniMax M2.7', value: 'opencode-go/minimax-m2.7' },
+  { label: 'MiniMax M2.5', value: 'opencode-go/minimax-m2.5' },
+  { label: 'Kimi K2.5 Vision', value: 'opencode-go/kimi-k2.5' },
 ]
 
 const currentSessionTitle = computed(() => {
@@ -252,6 +282,14 @@ async function runQuery() {
   const text = queryText.value.trim()
   if (!text) return
 
+  const conversationHistory = messages.value
+    .filter((msg) => ['user', 'ai', 'assistant'].includes(msg.role) && msg.content)
+    .slice(-12)
+    .map((msg) => ({
+      role: msg.role === 'ai' ? 'assistant' : msg.role,
+      content: msg.content,
+    }))
+
   // Optimistic User Message UI update
   const optimisticId = `temp-${Date.now()}`
   messages.value.push({
@@ -288,8 +326,10 @@ async function runQuery() {
         text,
         mode.value,
         topK.value,
+        selectedModel.value,
         operationId,
         targetSessionId,
+        conversationHistory,
         actionContext
       )
 

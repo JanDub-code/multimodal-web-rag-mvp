@@ -150,8 +150,10 @@ export const queryService = {
     text,
     mode = 'rag',
     topK = 5,
+    model = null,
     operationId = null,
     sessionId = null,
+    conversationHistory = [],
     compliance = {}
   ) {
     const response = await api.post(
@@ -160,7 +162,9 @@ export const queryService = {
         query: text,
         mode,
         top_k: topK,
+        model,
         operation_id: operationId,
+        conversation_history: conversationHistory,
         compliance_confirmed: compliance.complianceConfirmed,
         compliance_bypassed: compliance.complianceBypassed,
         compliance_reason: compliance.complianceReason,

@@ -6,12 +6,9 @@ cd "$ROOT_DIR"
 
 if [[ $# -gt 0 ]]; then
   echo "[dev-up] This script does not support runtime-specific arguments."
-  echo "[dev-up] Start Ollama separately, then run ./scripts/dev-up.sh"
+  echo "[dev-up] Configure .env, then run ./scripts/dev-up.sh"
   exit 1
 fi
-
-export DOCKER_OLLAMA_BASE_URL="${DOCKER_OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
-export DOCKER_EMBEDDING_BASE_URL="${DOCKER_EMBEDDING_BASE_URL:-http://host.docker.internal:11434}"
 
 verify_default_users() {
   local user_count
@@ -49,7 +46,9 @@ echo "[dev-up] Done."
 echo "Frontend: http://127.0.0.1:8080"
 echo "API: http://127.0.0.1:8000"
 echo "Health: http://127.0.0.1:8000/health"
-echo "Ollama base URL for containers: ${DOCKER_OLLAMA_BASE_URL}"
-echo "Embedding base URL for containers: ${DOCKER_EMBEDDING_BASE_URL}"
 echo
-echo "Make sure Ollama is running and the configured models are pulled."
+echo "OpenCode generation requires an API key (keep it out of .env):"
+echo "  OPENCODE_API_KEY='sk-...' ./scripts/dev-up.sh"
+echo "  # or runtime override: OPENCODE_API_KEY_RUNTIME='sk-...' ./scripts/dev-up.sh"
+echo "Verify generation is configured:"
+echo "  curl -fsS http://127.0.0.1:8000/health | python -m json.tool | grep configured"

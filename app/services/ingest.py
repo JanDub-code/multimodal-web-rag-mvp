@@ -18,9 +18,8 @@ from app.services.chunking import chunk_sections
 from app.services.extract import persist_canonical_document_for_key, to_canonical_document
 from app.services.incidents import detect_captcha_heuristic, log_captcha_incident, log_ingest_incident
 from app.services.model_usage import ingest_model_usage
-from app.services.multimodal import extract_structured_document_from_image, ollama_chat_generate
+from app.services.multimodal import chat_generate, extract_structured_document_from_image
 from app.services.retrieval import delete_vectors_by_chunk_ids, upsert_chunk_vectors
-from app.services.source_urls import ensure_source_url, mark_attempt, mark_success
 from app.services.url_safety import SafeSession, UnsafeUrlError, validate_public_url
 
 logger = logging.getLogger(__name__)
@@ -126,7 +125,7 @@ def _run_playwright_in_fresh_loop(url: str, screenshot_path: str) -> tuple[str, 
 
 def _extract_screenshot_text(screenshot_path: str) -> str:
     def _vision_ocr_fallback() -> str:
-        model = settings.ollama_vision_model or settings.ollama_model
+        model = settings.default_generation_model
         if not model:
             return ""
         prompt = (
@@ -134,7 +133,7 @@ def _extract_screenshot_text(screenshot_path: str) -> str:
             "Return plain text only in natural reading order. "
             "Do not summarize and do not add commentary."
         )
-        text = ollama_chat_generate(
+        text = chat_generate(
             prompt=prompt,
             model=model,
             image_paths=[screenshot_path],
@@ -286,29 +285,14 @@ def _classify_ingest_failure(exc: Exception) -> str:
     return "ingest_failure"
 
 
-def run_ingest(
-    db: Session,
-    source_id: int,
-    url: str,
-    *,
-    refresh_interval_minutes: int | None = None,
-) -> dict:
+def run_ingest(db: Session, source_id: int, url: str) -> dict:
     source = db.get(Source, source_id)
     if not source:
         raise ValueError("Source not found")
 
     validate_public_url(url)
 
-    started_ts = datetime.now(timezone.utc)
-    source_url = ensure_source_url(
-        db,
-        source_id=source_id,
-        url=url,
-        refresh_interval_minutes=refresh_interval_minutes,
-    )
-    mark_attempt(source_url, started_ts)
-
-    job = IngestJob(source_id=source_id, url=url, strategy="HTML", status="running", started_ts=started_ts)
+    job = IngestJob(source_id=source_id, url=url, strategy="HTML", status="running")
     db.add(job)
     db.flush()
 
@@ -414,7 +398,7 @@ def run_ingest(
                 "document_id": None,
                 "evidence_ids": evidence_ids,
                 "incident_id": incident_id,
-                "model_usage": ingest_model_usage(embedding_used=False, vision_used=False),
+                "model_usage": ingest_model_usage(index_used=False, vision_used=False),
             }
 
         _cleanup_old_document(db, source_id, url)
@@ -464,8 +448,11 @@ def run_ingest(
             chunk = Chunk(doc_id=document.id, chunk_type=chunk_type, text=chunk_text, citations_ref=json.dumps(citations))
             db.add(chunk)
             db.flush()
-
-            embedding = Embedding(chunk_id=chunk.id, model_id=settings.embedding_model, vector_ref=f"qdrant:{chunk.id}")
+            embedding = Embedding(
+                chunk_id=chunk.id,
+                model_id=settings.embedding_model,
+                vector_ref=f"qdrant:{settings.qdrant_collection}:{chunk.id}",
+            )
             db.add(embedding)
             qdrant_rows.append(
                 {
@@ -484,7 +471,6 @@ def run_ingest(
         job.strategy = strategy
         job.status = "completed"
         job.finished_ts = datetime.now(timezone.utc)
-        mark_success(source_url, job.finished_ts)
         db.commit()
 
         logger.info("Ingest completed: job=%d strategy=%s doc=%d chunks=%d", job.id, strategy, document.id, len(chunk_rows))
@@ -496,7 +482,7 @@ def run_ingest(
             "evidence_ids": evidence_ids,
             "incident_id": incident_id,
             "model_usage": ingest_model_usage(
-                embedding_used=True,
+                index_used=True,
                 vision_used=vision_used,
                 vision_model=vision_model,
             ),
@@ -505,16 +491,6 @@ def run_ingest(
     except Exception as exc:
         logger.exception("Ingest failed for source %d, URL %s", source_id, url)
         db.rollback()
-        try:
-            source_url = ensure_source_url(
-                db,
-                source_id=source_id,
-                url=url,
-                refresh_interval_minutes=refresh_interval_minutes,
-            )
-            mark_attempt(source_url)
-        except Exception:
-            logger.exception("Failed to update source_url attempt timestamp")
         incident_type = _classify_ingest_failure(exc)
         failure_incident_id = None
         try:

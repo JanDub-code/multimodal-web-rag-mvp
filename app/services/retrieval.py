@@ -150,26 +150,17 @@ def _extract_collection_vector_size(collection_info: Any) -> int | None:
     vectors_config = getattr(params, "vectors", None)
 
     if vectors_config is None and isinstance(collection_info, dict):
-        vectors_config = (
-            collection_info.get("config", {})
-            .get("params", {})
-            .get("vectors")
-        )
-
+        vectors_config = collection_info.get("config", {}).get("params", {}).get("vectors")
     if vectors_config is None:
         return None
-
     if isinstance(vectors_config, dict):
         if "size" in vectors_config:
             return int(vectors_config["size"])
         for value in vectors_config.values():
-            if isinstance(value, dict) and "size" in value:
-                return int(value["size"])
-            size = getattr(value, "size", None)
+            size = value.get("size") if isinstance(value, dict) else getattr(value, "size", None)
             if size is not None:
                 return int(size)
         return None
-
     size = getattr(vectors_config, "size", None)
     return int(size) if size is not None else None
 
@@ -205,61 +196,54 @@ def ensure_collection(vector_size: int, collection_name: str | None = None) -> N
 
 
 def upsert_chunk_vectors(rows: list[dict]) -> None:
-    from qdrant_client.http import models as qmodels
-
     if not rows:
         return
-    vectors = embed_texts([r["text"] for r in rows])
+
+    from qdrant_client.http import models as qmodels
+
+    vectors = embed_texts([row["text"] for row in rows])
     ensure_collection(vector_size=len(vectors[0]))
-    points = []
-    for idx, row in enumerate(rows):
-        points.append(
-            qmodels.PointStruct(
-                id=int(row["chunk_id"]),
-                vector=_vector_to_list(vectors[idx]),
-                payload={
-                    "chunk_id": row["chunk_id"],
-                    "doc_id": row["doc_id"],
-                    "source_id": row["source_id"],
-                    "url": row["url"],
-                    "text": row["text"],
-                    "chunk_type": row.get("chunk_type", "text"),
-                    "citations_ref": row["citations_ref"],
-                    "embedding_model": settings.embedding_model,
-                    "embedding_dimensions": len(vectors[idx]),
-                },
-            )
+    points = [
+        qmodels.PointStruct(
+            id=int(row["chunk_id"]),
+            vector=_vector_to_list(vectors[idx]),
+            payload={
+                "chunk_id": row["chunk_id"],
+                "doc_id": row["doc_id"],
+                "source_id": row["source_id"],
+                "url": row["url"],
+                "text": row["text"],
+                "chunk_type": row.get("chunk_type", "text"),
+                "citations_ref": row["citations_ref"],
+                "embedding_model": settings.embedding_model,
+                "embedding_dimensions": len(vectors[idx]),
+            },
         )
+        for idx, row in enumerate(rows)
+    ]
     get_qdrant().upsert(collection_name=settings.qdrant_collection, points=points)
 
 
 def delete_vectors_by_chunk_ids(chunk_ids: list[int]) -> None:
-    """Remove vectors from Qdrant by their point IDs (chunk IDs)."""
-    from qdrant_client.http import models as qmodels
-
     if not chunk_ids:
         return
-    try:
-        get_qdrant().delete(
-            collection_name=settings.qdrant_collection,
-            points_selector=qmodels.PointIdsList(points=chunk_ids),
-        )
-        logger.info("Deleted %d vectors from Qdrant", len(chunk_ids))
-    except Exception:
-        logger.exception("Failed to delete vectors from Qdrant")
+
+    from qdrant_client.http import models as qmodels
+
+    get_qdrant().delete(
+        collection_name=settings.qdrant_collection,
+        points_selector=qmodels.PointIdsList(points=chunk_ids),
+    )
 
 
-def search_top_k(query: str, top_k: int = 5, min_score: float | None = None) -> list[dict]:
+def search_top_k(db, query: str, top_k: int = 5, min_score: float | None = None) -> list[dict]:
     try:
         from qdrant_client.http.exceptions import UnexpectedResponse
-    except ModuleNotFoundError:  # pragma: no cover - test/runtime fallback when qdrant extras are unavailable
+    except ModuleNotFoundError:
         class UnexpectedResponse(Exception):
             status_code = None
 
-
-    if min_score is None:
-        min_score = settings.retrieval_min_score
-
+    min_score = settings.retrieval_min_score if min_score is None else min_score
     query_vec = _vector_to_list(embed_texts([query])[0])
     raw_limit = max(top_k * 5, top_k)
     try:
@@ -269,24 +253,17 @@ def search_top_k(query: str, top_k: int = 5, min_score: float | None = None) -> 
             limit=raw_limit,
         )
     except UnexpectedResponse as exc:
-        if exc.status_code == 404:
-            logger.warning("Qdrant collection '%s' does not exist yet — returning empty results", settings.qdrant_collection)
+        if getattr(exc, "status_code", None) == 404:
+            logger.warning("Qdrant collection '%s' does not exist yet", settings.qdrant_collection)
             return []
         raise
+
     results = []
     for hit in hits:
         score = float(hit.score)
         if score < min_score:
-            logger.debug("Skipping hit with score %.4f (threshold %.4f)", score, min_score)
             continue
         payload = hit.payload or {}
-        raw_chunk_id = getattr(hit, "id", None)
-        if raw_chunk_id is None:
-            raw_chunk_id = payload.get("chunk_id")
-        try:
-            chunk_id = int(raw_chunk_id) if raw_chunk_id is not None else None
-        except (TypeError, ValueError):
-            chunk_id = None
         citations = payload.get("citations_ref")
         if isinstance(citations, str):
             try:
@@ -296,7 +273,8 @@ def search_top_k(query: str, top_k: int = 5, min_score: float | None = None) -> 
         results.append(
             {
                 "score": score,
-                "chunk_id": chunk_id,
+                "score_vector": score,
+                "chunk_id": payload.get("chunk_id") or getattr(hit, "id", None),
                 "doc_id": payload.get("doc_id"),
                 "source_id": payload.get("source_id"),
                 "text": payload.get("text", ""),
@@ -308,10 +286,8 @@ def search_top_k(query: str, top_k: int = 5, min_score: float | None = None) -> 
 
     reranked = _rerank_and_deduplicate_results(query=query, rows=results, top_k=top_k)
     logger.info(
-        "Query returned %d results above threshold %.2f (from %d hits, %d candidates after rerank)",
+        "Vector query returned %d results from %d candidates",
         len(reranked),
-        min_score,
-        len(hits),
         len(results),
     )
     return reranked
