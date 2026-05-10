@@ -18,6 +18,7 @@
           <v-list-item to="/chat" prepend-icon="mdi-chat-processing-outline" title="Chat" base-color="primary" />
 
           <v-list-item v-if="authStore.isAdmin" to="/audit" prepend-icon="mdi-lock-outline" title="Audit" base-color="primary" />
+          <v-list-item v-if="authStore.isCurator" to="/incidents" prepend-icon="mdi-alert-circle-outline" title="Incidenty" base-color="primary" />
 
           <v-list-item v-if="authStore.isCurator" to="/sources" prepend-icon="mdi-database-outline" title="Sprava zdroju" base-color="primary" />
           <v-list-item v-if="authStore.isCurator" to="/ingest" prepend-icon="mdi-cloud-upload-outline" title="Ingest" base-color="primary" />

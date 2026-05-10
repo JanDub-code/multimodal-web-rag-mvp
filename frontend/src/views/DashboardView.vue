@@ -11,10 +11,12 @@
         </div>
       </v-col>
       <v-col cols="12" sm="6" md="3">
-        <div class="stat-card">
-          <div class="stat-card__value stat-card__value--accent">{{ stats.openIncidents }}</div>
-          <div class="stat-card__label">Otevřené incidenty</div>
-        </div>
+        <router-link to="/incidents" style="text-decoration: none;">
+          <div class="stat-card stat-card--clickable">
+            <div class="stat-card__value stat-card__value--accent">{{ stats.openIncidents }}</div>
+            <div class="stat-card__label">Otevřené incidenty <v-icon size="14" class="ml-1">mdi-arrow-right</v-icon></div>
+          </div>
+        </router-link>
       </v-col>
       <v-col cols="12" sm="6" md="3">
         <div class="stat-card">
@@ -55,6 +57,16 @@
               to="/ingest"
             >
               Spustit ingest
+            </v-btn>
+            <v-btn
+              v-if="canManageSources"
+              variant="outlined"
+              prepend-icon="mdi-alert-circle-outline"
+              block
+              class="mb-3"
+              to="/incidents"
+            >
+              Správa incidentů
             </v-btn>
             <v-btn
               v-if="canManageSources"
@@ -112,19 +124,32 @@
 import { ref, onMounted } from 'vue'
 import { useAuth } from '@/composables/useAuth'
 import { auditService } from '@/services/auditService'
-import { mockDashboardStats } from '@/services/mock/mockData'
+import api from '@/plugins/axios'
 
 const { canQuery, canIngest, canManageSources } = useAuth()
 
-const stats = ref({ ...mockDashboardStats })
+const stats = ref({
+  totalSources: '—',
+  openIncidents: '—',
+  lastCrawl: null,
+  nextCrawl: null,
+})
 const recentAudit = ref([])
 
 onMounted(async () => {
   try {
-    const logs = await auditService.getAuditLogs()
-    recentAudit.value = (logs || []).slice(0, 6)
+    const [statsRes, logsRes] = await Promise.allSettled([
+      api.get('/dashboard/stats'),
+      auditService.getAuditLogs(),
+    ])
+    if (statsRes.status === 'fulfilled') {
+      stats.value = statsRes.value.data
+    }
+    if (logsRes.status === 'fulfilled') {
+      recentAudit.value = (logsRes.value || []).slice(0, 6)
+    }
   } catch (err) {
-    console.error('Failed to load audit logs:', err)
+    console.error('Dashboard load error:', err)
   }
 })
 
@@ -135,12 +160,19 @@ function formatTime(ts) {
 
 function formatDate(dateString) {
   if (!dateString || dateString === '–') return '–'
-  const parts = dateString.split('-')
-  if (parts.length === 3) {
-    return `${parts[2]}.${parts[1]}.${parts[0]}`
-  }
   const d = new Date(dateString)
-  return isNaN(d.getTime()) ? dateString : d.toLocaleDateString('cs-CZ')
+  if (isNaN(d.getTime())) return dateString
+  // If the value contains a time component, show date + time
+  if (dateString.includes('T') || dateString.includes(' ')) {
+    return d.toLocaleString('cs-CZ', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
+  return d.toLocaleDateString('cs-CZ')
 }
 </script>
 
@@ -159,6 +191,15 @@ function formatDate(dateString) {
       justify-content: flex-start;
       text-transform: none;
       font-weight: $font-weight-medium;
+    }
+  }
+
+  .stat-card--clickable {
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.10);
     }
   }
 

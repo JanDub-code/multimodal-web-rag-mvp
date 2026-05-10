@@ -13,6 +13,7 @@ from app.api.routes_audit import router as audit_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_compliance import router as compliance_router
 from app.api.routes_dashboard import router as dashboard_router
+from app.api.routes_incidents import router as incidents_router
 from app.api.routes_ingest import router as ingest_router
 from app.api.routes_query import router as query_router
 from app.api.routes_runtime import router as runtime_router
@@ -105,6 +106,7 @@ async def request_id_middleware(request: Request, call_next):
 app.include_router(audit_router)
 app.include_router(auth_router)
 app.include_router(dashboard_router)
+app.include_router(incidents_router)
 app.include_router(ingest_router)
 app.include_router(query_router)
 app.include_router(compliance_router)

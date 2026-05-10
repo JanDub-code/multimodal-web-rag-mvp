@@ -5,6 +5,7 @@ import LoginView from '@/views/LoginView.vue'
 import DashboardView from '@/views/DashboardView.vue'
 import ChatView from '@/views/ChatView.vue'
 import AuditView from '@/views/AuditView.vue'
+import IncidentsView from '@/views/IncidentsView.vue'
 import SourcesView from '@/views/SourcesView.vue'
 import IngestView from '@/views/IngestView.vue'
 import SettingsView from '@/views/SettingsView.vue'
@@ -40,6 +41,12 @@ const router = createRouter({
       name: 'audit',
       component: AuditView,
       meta: { requiresAuth: true, roles: ['admin'] },
+    },
+    {
+      path: '/incidents',
+      name: 'incidents',
+      component: IncidentsView,
+      meta: { requiresAuth: true, roles: ['admin', 'curator', 'analyst'] },
     },
     {
       path: '/sources',
