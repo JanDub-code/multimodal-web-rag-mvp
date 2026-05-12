@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*.local
+.azure-deploy.env
 
 # Python virtual environments
 .venv/
@@ -19,6 +20,8 @@ htmlcov/
 .playwright-browsers/
 .mypy_cache/
 .ruff_cache/
+.docker-acr-temp/
+scripts/.docker-acr-temp/
 
 # OS / editor files
 .DS_Store

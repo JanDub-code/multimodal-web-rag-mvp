@@ -8,7 +8,10 @@ __pycache__
 .mypy_cache
 .ruff_cache
 .playwright-browsers
+.docker-acr-temp
+scripts/.docker-acr-temp
 .env
+.azure-deploy.env
 data/evidence/*
 !data/evidence/.gitkeep
 !data/evidence/dom/.gitkeep

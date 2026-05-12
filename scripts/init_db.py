@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -46,10 +47,10 @@ def main() -> None:
     with SessionLocal() as db:
         ensure_schema_ready(db)
         results = {
-            "admin": ensure_user(db, "admin", "admin123", "Admin"),
-            "curator": ensure_user(db, "curator", "curator123", "Curator"),
-            "analyst": ensure_user(db, "analyst", "analyst123", "Analyst"),
-            "user": ensure_user(db, "user", "user123", "User"),
+            "admin": ensure_user(db, "admin", os.getenv("DEMO_ADMIN_PASSWORD", "admin123"), "Admin"),
+            "curator": ensure_user(db, "curator", os.getenv("DEMO_CURATOR_PASSWORD", "curator123"), "Curator"),
+            "analyst": ensure_user(db, "analyst", os.getenv("DEMO_ANALYST_PASSWORD", "analyst123"), "Analyst"),
+            "user": ensure_user(db, "user", os.getenv("DEMO_USER_PASSWORD", "user123"), "User"),
         }
         db.commit()
     summary = ", ".join(f"{username}:{status}" for username, status in results.items())

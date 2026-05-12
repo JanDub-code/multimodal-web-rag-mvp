@@ -1,0 +1,698 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.43.8.12551",
+      "templateHash": "15201129962452989734"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for Container Apps and storage."
+      }
+    },
+    "prefix": {
+      "type": "string",
+      "defaultValue": "xdubrag",
+      "metadata": {
+        "description": "Short lowercase deployment prefix. Use letters, numbers, hyphen. Example: xdubrag. Keep it <=20 characters so derived Container Apps Job names stay valid."
+      }
+    },
+    "acrLoginServer": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure Container Registry login server, for example myacr.azurecr.io."
+      }
+    },
+    "acrUsername": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure Container Registry username."
+      }
+    },
+    "acrPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Azure Container Registry password."
+      }
+    },
+    "apiImage": {
+      "type": "string",
+      "metadata": {
+        "description": "Backend API image tag."
+      }
+    },
+    "frontendImage": {
+      "type": "string",
+      "metadata": {
+        "description": "Frontend image tag."
+      }
+    },
+    "migrateImage": {
+      "type": "string",
+      "metadata": {
+        "description": "Alembic migration job image tag."
+      }
+    },
+    "appSecretKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "FastAPI/JWT secret key."
+      }
+    },
+    "postgresPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Postgres password for the app user."
+      }
+    },
+    "opencodeApiKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional OpenCode API key. Leave blank if you only want the UI/API without generation calls."
+      }
+    },
+    "startEnabled": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Whether apps should start running immediately after deployment. false = minReplicas 0 everywhere."
+      }
+    },
+    "seedDemoUsers": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Seed demo users during the migration job."
+      }
+    },
+    "demoAdminPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Demo admin password used by the migration/seed job."
+      }
+    },
+    "demoCuratorPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Demo curator password used by the migration/seed job."
+      }
+    },
+    "demoAnalystPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Demo analyst password used by the migration/seed job."
+      }
+    },
+    "demoUserPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Demo user password used by the migration/seed job."
+      }
+    }
+  },
+  "variables": {
+    "safePrefix": "[toLower(parameters('prefix'))]",
+    "compactPrefix": "[replace(variables('safePrefix'), '-', '')]",
+    "envName": "[format('{0}-env', variables('safePrefix'))]",
+    "logName": "[format('{0}-law', variables('safePrefix'))]",
+    "storageAccountName": "[take(format('{0}{1}', variables('compactPrefix'), uniqueString(resourceGroup().id, variables('safePrefix'))), 24)]",
+    "postgresAppName": "[format('{0}-postgres', variables('safePrefix'))]",
+    "qdrantAppName": "[format('{0}-qdrant', variables('safePrefix'))]",
+    "apiAppName": "[format('{0}-api', variables('safePrefix'))]",
+    "frontendAppName": "[format('{0}-frontend', variables('safePrefix'))]",
+    "migrateJobName": "[format('{0}-migrate', variables('safePrefix'))]",
+    "minOn": "[if(parameters('startEnabled'), 1, 0)]",
+    "databaseUrl": "[format('postgresql+psycopg://app:{0}@{1}:5432/multimodal_mvp', parameters('postgresPassword'), variables('postgresAppName'))]",
+    "commonRegistry": [
+      {
+        "server": "[parameters('acrLoginServer')]",
+        "username": "[parameters('acrUsername')]",
+        "passwordSecretRef": "acr-password"
+      }
+    ],
+    "commonAcrSecret": [
+      {
+        "name": "acr-password",
+        "value": "[parameters('acrPassword')]"
+      }
+    ],
+    "opencodeSecret": "[if(empty(parameters('opencodeApiKey')), createArray(), createArray(createObject('name', 'opencode-api-key', 'value', parameters('opencodeApiKey'))))]",
+    "opencodeEnv": "[if(empty(parameters('opencodeApiKey')), createArray(), createArray(createObject('name', 'OPENCODE_API_KEY_RUNTIME', 'secretRef', 'opencode-api-key')))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2023-09-01",
+      "name": "[variables('logName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "retentionInDays": 30,
+        "sku": {
+          "name": "PerGB2018"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('envName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "appLogsConfiguration": {
+          "destination": "log-analytics",
+          "logAnalyticsConfiguration": {
+            "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', variables('logName')), '2023-09-01').customerId]",
+            "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', variables('logName')), '2023-09-01').primarySharedKey]"
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('storageAccountName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": false,
+        "supportsHttpsTrafficOnly": true
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/fileServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('storageAccountName'), 'default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('storageAccountName'), 'default', 'qdrantdata')]",
+      "properties": {
+        "shareQuota": 32
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices', variables('storageAccountName'), 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('storageAccountName'), 'default', 'evidence')]",
+      "properties": {
+        "shareQuota": 16
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices', variables('storageAccountName'), 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('storageAccountName'), 'default', 'fastembed')]",
+      "properties": {
+        "shareQuota": 16
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices', variables('storageAccountName'), 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments/storages",
+      "apiVersion": "2024-03-01",
+      "name": "[format('{0}/{1}', variables('envName'), 'qdrantdata')]",
+      "properties": {
+        "azureFile": {
+          "accountName": "[variables('storageAccountName')]",
+          "accountKey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value]",
+          "shareName": "qdrantdata",
+          "accessMode": "ReadWrite"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices/shares', variables('storageAccountName'), 'default', 'qdrantdata')]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments/storages",
+      "apiVersion": "2024-03-01",
+      "name": "[format('{0}/{1}', variables('envName'), 'evidence')]",
+      "properties": {
+        "azureFile": {
+          "accountName": "[variables('storageAccountName')]",
+          "accountKey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value]",
+          "shareName": "evidence",
+          "accessMode": "ReadWrite"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices/shares', variables('storageAccountName'), 'default', 'evidence')]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments/storages",
+      "apiVersion": "2024-03-01",
+      "name": "[format('{0}/{1}', variables('envName'), 'fastembed')]",
+      "properties": {
+        "azureFile": {
+          "accountName": "[variables('storageAccountName')]",
+          "accountKey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value]",
+          "shareName": "fastembed",
+          "accessMode": "ReadWrite"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices/shares', variables('storageAccountName'), 'default', 'fastembed')]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('postgresAppName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "configuration": {
+          "activeRevisionsMode": "Single",
+          "ingress": {
+            "external": false,
+            "targetPort": 5432,
+            "exposedPort": 5432,
+            "transport": "tcp"
+          },
+          "secrets": [
+            {
+              "name": "postgres-password",
+              "value": "[parameters('postgresPassword')]"
+            }
+          ]
+        },
+        "template": {
+          "terminationGracePeriodSeconds": 60,
+          "containers": [
+            {
+              "name": "postgres",
+              "image": "postgres:16",
+              "env": [
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "app"
+                },
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "multimodal_mvp"
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "secretRef": "postgres-password"
+                },
+                {
+                  "name": "PGDATA",
+                  "value": "/var/lib/postgresql/data/pgdata"
+                }
+              ],
+              "resources": {
+                "cpu": "[json('0.5')]",
+                "memory": "1Gi"
+              },
+              "volumeMounts": [
+                {
+                  "volumeName": "pgdata",
+                  "mountPath": "/var/lib/postgresql/data"
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": "[variables('minOn')]",
+            "maxReplicas": 1,
+            "rules": [
+              {
+                "name": "tcp-5432",
+                "tcp": {
+                  "metadata": {
+                    "concurrentConnections": "50"
+                  }
+                }
+              }
+            ]
+          },
+          "volumes": [
+            {
+              "name": "pgdata",
+              "storageType": "EmptyDir"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('qdrantAppName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "configuration": {
+          "activeRevisionsMode": "Single",
+          "ingress": {
+            "external": false,
+            "targetPort": 6333,
+            "transport": "auto"
+          }
+        },
+        "template": {
+          "terminationGracePeriodSeconds": 60,
+          "containers": [
+            {
+              "name": "qdrant",
+              "image": "qdrant/qdrant:v1.15.5",
+              "resources": {
+                "cpu": "[json('0.5')]",
+                "memory": "1Gi"
+              },
+              "volumeMounts": [
+                {
+                  "volumeName": "qdrantdata",
+                  "mountPath": "/qdrant/storage"
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": "[variables('minOn')]",
+            "maxReplicas": 1,
+            "rules": [
+              {
+                "name": "http-6333",
+                "http": {
+                  "metadata": {
+                    "concurrentRequests": "50"
+                  }
+                }
+              }
+            ]
+          },
+          "volumes": [
+            {
+              "name": "qdrantdata",
+              "storageName": "qdrantdata",
+              "storageType": "AzureFile"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "[resourceId('Microsoft.App/managedEnvironments/storages', variables('envName'), 'qdrantdata')]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('apiAppName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "configuration": {
+          "activeRevisionsMode": "Single",
+          "ingress": {
+            "external": false,
+            "targetPort": 8000,
+            "transport": "auto"
+          },
+          "registries": "[variables('commonRegistry')]",
+          "secrets": "[concat(variables('commonAcrSecret'), variables('opencodeSecret'), createArray(createObject('name', 'app-secret-key', 'value', parameters('appSecretKey')), createObject('name', 'database-url', 'value', variables('databaseUrl'))))]"
+        },
+        "template": {
+          "terminationGracePeriodSeconds": 60,
+          "containers": [
+            {
+              "name": "api",
+              "image": "[parameters('apiImage')]",
+              "env": "[concat(createArray(createObject('name', 'APP_NAME', 'value', 'Multimodal RAG MVP'), createObject('name', 'APP_HOST', 'value', '0.0.0.0'), createObject('name', 'APP_PORT', 'value', '8000'), createObject('name', 'APP_SECRET_KEY', 'secretRef', 'app-secret-key'), createObject('name', 'DATABASE_URL', 'secretRef', 'database-url'), createObject('name', 'QDRANT_URL', 'value', format('https://{0}:443', format('{0}.internal.{1}', variables('qdrantAppName'), reference(resourceId('Microsoft.App/managedEnvironments', variables('envName')), '2024-03-01').defaultDomain))), createObject('name', 'RETRIEVAL_WARMUP_ON_STARTUP', 'value', 'false'), createObject('name', 'EVIDENCE_DIR', 'value', '/app/data/evidence'), createObject('name', 'SCREENSHOT_DIR', 'value', '/app/data/evidence/screenshots'), createObject('name', 'DOM_SNAPSHOT_DIR', 'value', '/app/data/evidence/dom')), variables('opencodeEnv'))]",
+              "resources": {
+                "cpu": "[json('1.0')]",
+                "memory": "2Gi"
+              },
+              "volumeMounts": [
+                {
+                  "volumeName": "evidence",
+                  "mountPath": "/app/data/evidence"
+                },
+                {
+                  "volumeName": "fastembed",
+                  "mountPath": "/root/.cache"
+                }
+              ],
+              "probes": [
+                {
+                  "type": "Startup",
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8000,
+                    "scheme": "HTTP"
+                  },
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 10,
+                  "failureThreshold": 20
+                },
+                {
+                  "type": "Liveness",
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8000,
+                    "scheme": "HTTP"
+                  },
+                  "initialDelaySeconds": 60,
+                  "periodSeconds": 30,
+                  "timeoutSeconds": 10,
+                  "failureThreshold": 5
+                }
+              ]
+            }
+          ],
+          "scale": {
+            "minReplicas": "[variables('minOn')]",
+            "maxReplicas": 1,
+            "rules": [
+              {
+                "name": "http-8000",
+                "http": {
+                  "metadata": {
+                    "concurrentRequests": "20"
+                  }
+                }
+              }
+            ]
+          },
+          "volumes": [
+            {
+              "name": "evidence",
+              "storageName": "evidence",
+              "storageType": "AzureFile"
+            },
+            {
+              "name": "fastembed",
+              "storageName": "fastembed",
+              "storageType": "AzureFile"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "[resourceId('Microsoft.App/managedEnvironments/storages', variables('envName'), 'evidence')]",
+        "[resourceId('Microsoft.App/managedEnvironments/storages', variables('envName'), 'fastembed')]",
+        "[resourceId('Microsoft.App/containerApps', variables('postgresAppName'))]",
+        "[resourceId('Microsoft.App/containerApps', variables('qdrantAppName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('frontendAppName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "configuration": {
+          "activeRevisionsMode": "Single",
+          "ingress": {
+            "external": true,
+            "targetPort": 80,
+            "transport": "auto",
+            "allowInsecure": false,
+            "traffic": [
+              {
+                "latestRevision": true,
+                "weight": 100
+              }
+            ]
+          },
+          "registries": "[variables('commonRegistry')]",
+          "secrets": "[variables('commonAcrSecret')]"
+        },
+        "template": {
+          "terminationGracePeriodSeconds": 30,
+          "containers": [
+            {
+              "name": "frontend",
+              "image": "[parameters('frontendImage')]",
+              "env": [
+                {
+                  "name": "API_UPSTREAM",
+                  "value": "[format('https://{0}', format('{0}.internal.{1}', variables('apiAppName'), reference(resourceId('Microsoft.App/managedEnvironments', variables('envName')), '2024-03-01').defaultDomain))]"
+                }
+              ],
+              "resources": {
+                "cpu": "[json('0.25')]",
+                "memory": "0.5Gi"
+              }
+            }
+          ],
+          "scale": {
+            "minReplicas": "[variables('minOn')]",
+            "maxReplicas": 1,
+            "rules": [
+              {
+                "name": "http-80",
+                "http": {
+                  "metadata": {
+                    "concurrentRequests": "50"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/containerApps', variables('apiAppName'))]",
+        "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.App/jobs",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('migrateJobName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "environmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "configuration": {
+          "triggerType": "Manual",
+          "manualTriggerConfig": {
+            "parallelism": 1,
+            "replicaCompletionCount": 1
+          },
+          "replicaRetryLimit": 2,
+          "replicaTimeout": 900,
+          "registries": "[variables('commonRegistry')]",
+          "secrets": "[concat(variables('commonAcrSecret'), createArray(createObject('name', 'database-url', 'value', variables('databaseUrl')), createObject('name', 'demo-admin-password', 'value', parameters('demoAdminPassword')), createObject('name', 'demo-curator-password', 'value', parameters('demoCuratorPassword')), createObject('name', 'demo-analyst-password', 'value', parameters('demoAnalystPassword')), createObject('name', 'demo-user-password', 'value', parameters('demoUserPassword'))))]"
+        },
+        "template": {
+          "containers": [
+            {
+              "name": "migrate",
+              "image": "[parameters('migrateImage')]",
+              "env": [
+                {
+                  "name": "DATABASE_URL",
+                  "secretRef": "database-url"
+                },
+                {
+                  "name": "QDRANT_URL",
+                  "value": "[format('https://{0}:443', format('{0}.internal.{1}', variables('qdrantAppName'), reference(resourceId('Microsoft.App/managedEnvironments', variables('envName')), '2024-03-01').defaultDomain))]"
+                },
+                {
+                  "name": "SEED_DEMO_USERS",
+                  "value": "[if(parameters('seedDemoUsers'), 'true', 'false')]"
+                },
+                {
+                  "name": "DEMO_ADMIN_PASSWORD",
+                  "secretRef": "demo-admin-password"
+                },
+                {
+                  "name": "DEMO_CURATOR_PASSWORD",
+                  "secretRef": "demo-curator-password"
+                },
+                {
+                  "name": "DEMO_ANALYST_PASSWORD",
+                  "secretRef": "demo-analyst-password"
+                },
+                {
+                  "name": "DEMO_USER_PASSWORD",
+                  "secretRef": "demo-user-password"
+                },
+                {
+                  "name": "DB_STARTUP_TIMEOUT_SECONDS",
+                  "value": "600"
+                }
+              ],
+              "resources": {
+                "cpu": "[json('0.5')]",
+                "memory": "1Gi"
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/managedEnvironments', variables('envName'))]",
+        "[resourceId('Microsoft.App/containerApps', variables('postgresAppName'))]",
+        "[resourceId('Microsoft.App/containerApps', variables('qdrantAppName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "frontendUrl": {
+      "type": "string",
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.App/containerApps', variables('frontendAppName')), '2024-03-01').configuration.ingress.fqdn)]"
+    },
+    "apiInternalUrl": {
+      "type": "string",
+      "value": "[format('https://{0}', format('{0}.internal.{1}', variables('apiAppName'), reference(resourceId('Microsoft.App/managedEnvironments', variables('envName')), '2024-03-01').defaultDomain))]"
+    },
+    "qdrantInternalUrl": {
+      "type": "string",
+      "value": "[format('https://{0}:443', format('{0}.internal.{1}', variables('qdrantAppName'), reference(resourceId('Microsoft.App/managedEnvironments', variables('envName')), '2024-03-01').defaultDomain))]"
+    },
+    "postgresInternalHost": {
+      "type": "string",
+      "value": "[variables('postgresAppName')]"
+    },
+    "startCommand": {
+      "type": "string",
+      "value": "./scripts/azure-start.sh"
+    },
+    "stopCommand": {
+      "type": "string",
+      "value": "./scripts/azure-stop.sh"
+    }
+  }
+}
